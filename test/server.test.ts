@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { createApp } from '../src/server.js';
+import { Vault } from '../src/vault.js';
+
+test('HTTP authentication, host checks and real MCP tools', async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidian-http-'));
+  const root = path.join(temporary, 'vault');
+  await fs.mkdir(root);
+  const token = 'test-token-not-for-production-123456789';
+  const vault = new Vault(root, path.join(temporary, 'backups'));
+  assert.throws(() => createApp(vault, 'short'));
+  assert.throws(() => createApp(vault, 'REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS'));
+  const { app, close } = createApp(vault, token);
+  const listener = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => listener.once('listening', resolve));
+  const address = listener.address() as { port: number };
+  const endpoint = `http://127.0.0.1:${address.port}/mcp`;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+  const client = new Client({ name: 'integration-test', version: '1.0' });
+  const transport = new StreamableHTTPClientTransport(new URL(endpoint), { requestInit: { headers } });
+  try {
+    assert.equal((await fetch(endpoint, { method: 'POST' })).status, 401);
+    assert.equal((await fetch(endpoint, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
+    assert.equal((await fetch(`${endpoint}?token=wrong`)).status, 401);
+    assert.equal((await fetch(`${endpoint}?token=${token}&x=1`)).status, 400);
+    assert.equal((await fetch(`${endpoint}?token=${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: '{}' })).status === 401, false);
+    assert.equal((await fetch(endpoint, { headers: { ...headers, Origin: 'https://untrusted.example' } })).status, 403);
+    await client.connect(transport);
+    const listed = await client.listTools();
+    assert.equal(listed.tools.length, 6);
+    const created = await client.callTool({ name: 'write_note', arguments: { path: 'Hello.md', content: '# Hello MCP' } });
+    assert.equal(created.isError, undefined);
+    const read = await client.callTool({ name: 'read_note', arguments: { path: 'Hello.md' } });
+    const text = read.content[0];
+    assert.equal(text.type, 'text');
+    if (text.type === 'text') assert.equal(JSON.parse(text.text).content, '# Hello MCP');
+    const denied = await client.callTool({ name: 'read_note', arguments: { path: '../secret.md' } });
+    assert.equal(denied.isError, true);
+  } finally {
+    await client.close();
+    await close();
+    await new Promise<void>((resolve, reject) => listener.close(error => error ? reject(error) : resolve()));
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});

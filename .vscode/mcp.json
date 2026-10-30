@@ -1,0 +1,17 @@
+{
+  "inputs": [
+    { "id": "vaultPath", "type": "promptString", "description": "Absolute local path to a Markdown test vault" },
+    { "id": "backupPath", "type": "promptString", "description": "Absolute local backup path outside the vault" }
+  ],
+  "servers": {
+    "obsidian-vault": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js", "--stdio"],
+      "env": {
+        "OBSIDIAN_VAULT_PATH": "${input:vaultPath}",
+        "OBSIDIAN_BACKUP_PATH": "${input:backupPath}"
+      }
+    }
+  }
+}

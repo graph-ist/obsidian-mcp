@@ -1,0 +1,28 @@
+[Unit]
+Description=Obsidian vault MCP
+After=network.target
+
+[Service]
+Type=simple
+User=obsidian-dav
+Group=obsidian-dav
+WorkingDirectory=/opt/obsidian-mcp
+EnvironmentFile=/etc/obsidian-mcp.env
+ExecStart=/usr/bin/node /opt/obsidian-mcp/dist/index.js
+Restart=on-failure
+RestartSec=5
+StateDirectory=obsidian-mcp
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/srv/obsidian-webdav /var/lib/obsidian-mcp
+
+[Install]
+WantedBy=multi-user.target
