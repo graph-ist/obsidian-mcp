@@ -36,3 +36,14 @@ test('backlinks report the linking line', () => {
   assert.equal(result.count, 2);
   assert.deepEqual(result.backlinks[0], { path: 'Zettelkasten/Heidegger.md', context: 'Student of [[Husserl|his teacher]].' });
 });
+
+test('append ignores headings inside code blocks', () => {
+  const text = '#### To Verify\n\n- [ ] a\n\n```\n#### not a heading\n```\n\n#### Open Questions\n\nq\n';
+  assert.equal(appendText(text, '- [ ] b', 'To Verify'), '#### To Verify\n\n- [ ] a\n\n```\n#### not a heading\n```\n\n- [ ] b\n\n#### Open Questions\n\nq\n');
+});
+
+test('rename handles table links, skips code, and can keep to one folder path', () => {
+  const text = '| [[Old\\|alias]] |\n`[[Old]]`\n```\n[[Old]]\n```\n[[A/Old]] [[B/Old]] [[Old]]';
+  assert.equal(renameLinks(text, 'Old', 'New').content, '| [[New\\|alias]] |\n`[[Old]]`\n```\n[[Old]]\n```\n[[New]] [[New]] [[New]]');
+  assert.equal(renameLinks(text, 'Old', 'New', 'A/Old.md').content, '| [[Old\\|alias]] |\n`[[Old]]`\n```\n[[Old]]\n```\n[[New]] [[B/Old]] [[Old]]');
+});

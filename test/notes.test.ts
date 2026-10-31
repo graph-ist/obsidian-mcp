@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { emitFrontmatter, inScope, loadSchema, patchFrontmatter, splitNote, validateNote } from '../src/notes.js';
+import { inScope, loadSchema, patchFrontmatter, splitNote, validateNote } from '../src/notes.js';
 
 const schema = loadSchema();
 const good = `---
@@ -35,7 +35,7 @@ test('errors and warnings are reported per field', () => {
     .replace('tags:', 'status: draft\ntags:');
   const issues = validateNote('Zettelkasten/Phenomenology.md', bad, schema);
   const messages = issues.map(issue => `${issue.level}: ${issue.message}`);
-  assert.ok(messages.includes('error: Unknown ANZSRC code in cssclasses: 999999-unknown.'));
+  assert.ok(messages.some(message => message.startsWith('warning: ANZSRC code not in the schema list: 999999-unknown.')));
   assert.ok(messages.includes('error: related entry is not a wikilink: Heidegger.'));
   assert.ok(messages.includes('warning: related links to the note itself: Phenomenology.'));
   assert.ok(messages.includes('warning: Duplicate in related: Husserl.'));
@@ -66,5 +66,32 @@ test('patching keeps the body byte for byte and the vault YAML style', () => {
   assert.ok(patched.startsWith('---\ncssclasses:\n  - 500310-phenomenology\n  - 500305-epistemology\nsubclasses:'));
   assert.ok(patched.includes('  - "[[Husserl]]"'));
   assert.ok(!patched.includes('tags:'));
-  assert.equal(emitFrontmatter({ reference: null, aliases: [] }, ['aliases', 'reference']), '---\naliases:\nreference:\n---\n');
+  assert.equal(patchFrontmatter(good, {}, [], schema.fields), good, 'a no-op patch leaves the note byte for byte');
+});
+
+test('malformed codes are errors, a single string asks for a list, scope ignores case', () => {
+  const bad = good.replace('500310-phenomenology', 'Phenomenology');
+  assert.ok(validateNote('Zettelkasten/x.md', bad, schema).some(issue => issue.level === 'error' && issue.message.startsWith('Not an ANZSRC code')));
+  const single = good.replace('cssclasses:\n  - 500310-phenomenology', 'cssclasses: 500310-phenomenology');
+  assert.ok(validateNote('Zettelkasten/x.md', single, schema)[0].message.includes('YAML list'));
+  assert.equal(inScope('zettelkasten/x.md', schema), true);
+  assert.equal(inScope('ZETTELKASTEN/Da Rivedere/x.md', schema), false);
+});
+
+test('headings inside code blocks are not checked', () => {
+  const fenced = good + '\n```markdown\n#### Example heading\n```\n\n~~~\n#### Another\n~~~\n';
+  assert.deepEqual(validateNote('Zettelkasten/x.md', fenced, schema), []);
+});
+
+test('patching keeps other fields exactly: nested maps, booleans, numbers, comments', () => {
+  const note = '---\nsource:\n  title: X\n  year: 2019\npublish: true\nrating: 4.50 # stars\n---\nbody\n';
+  const patched = patchFrontmatter(note, { aliases: ['a'], cssclasses: ['500310-phenomenology'] }, [], schema.fields);
+  assert.equal(patched, '---\ncssclasses:\n  - 500310-phenomenology\naliases:\n  - a\nsource:\n  title: X\n  year: 2019\npublish: true\nrating: 4.50 # stars\n---\nbody\n');
+  assert.deepEqual(splitNote(patched).frontmatter!.source, { title: 'X', year: 2019 });
+});
+
+test('empty frontmatter, missing frontmatter and CRLF notes', () => {
+  assert.equal(patchFrontmatter('---\n---\nbody\n', { aliases: ['a'] }, [], schema.fields), '---\naliases:\n  - a\n---\nbody\n');
+  assert.equal(patchFrontmatter('body only\n', { related: ['[[X]]'], tags: [] }, [], schema.fields), '---\nrelated:\n  - "[[X]]"\ntags:\n---\nbody only\n');
+  assert.equal(patchFrontmatter('---\r\naliases:\r\n  - x\r\n---\r\nbody\r\n', { tags: ['t'] }, ['aliases'], schema.fields), '---\r\ntags:\r\n  - t\r\n---\r\nbody\r\n');
 });

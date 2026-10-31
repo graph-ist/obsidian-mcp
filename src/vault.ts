@@ -35,6 +35,22 @@ export class Vault {
     return current;
   }
 
+  // Refuses a new file or folder whose name differs only in case from an existing sibling, so
+  // "zettelkasten/x.md" cannot create a second folder next to "Zettelkasten".
+  private async checkCase(name: string) {
+    const parts = name.split('/');
+    let current = await fs.realpath(this.root);
+    for (const part of parts) {
+      const entries = await fs.readdir(current).catch(() => [] as string[]);
+      if (!entries.includes(part)) {
+        const clash = entries.find(entry => entry.toLowerCase() === part.toLowerCase());
+        if (clash) throw new Error(`"${part}" differs only in case from the existing "${clash}". Use the existing name.`);
+        return;
+      }
+      current = path.join(current, part);
+    }
+  }
+
   private serialize<Result>(operation: () => Promise<Result>): Promise<Result> {
     const result = this.pending.then(operation);
     this.pending = result.catch(() => undefined);
@@ -59,9 +75,14 @@ export class Vault {
   async read(name: string) {
     const filename = await this.resolve(name);
     const stat = await fs.stat(filename);
-    if (!stat.isFile() || stat.size > 1_000_000) throw new Error('Note must be a file under 1 MB.');
+    if (!stat.isFile() || stat.size > 1_000_000) throw new Error(`Note must be a file under 1 MB: ${name}`);
     const buffer = await fs.readFile(filename);
-    const content = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    let content: string;
+    try {
+      content = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    } catch {
+      throw new Error(`Note is not valid UTF-8 text: ${name}`);
+    }
     return { path: name, content, version: createHash('sha256').update(buffer).digest('hex') };
   }
 
@@ -78,6 +99,7 @@ export class Vault {
     return this.serialize(async () => {
       if (Buffer.byteLength(content) > 1_000_000) throw new Error('Note exceeds 1 MB.');
       const filename = await this.resolve(name);
+      if (!expectedVersion) await this.checkCase(name);
       let backupId: string | undefined;
       if (expectedVersion) {
         const previous = await this.read(name);
@@ -106,6 +128,7 @@ export class Vault {
       if (previous.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
       const source = await this.resolve(name);
       const target = await this.resolve(destination);
+      await this.checkCase(destination);
       const backupId = await this.snapshot(name, previous.content);
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.link(source, target);
@@ -124,7 +147,14 @@ export class Vault {
     });
   }
 
-  // Every note under a folder, depth first, capped like search.
+  // Paths of every note under a folder, with a flag when the cap cut the list.
+  async notes(folder = '', cap = 2000): Promise<{ paths: string[]; truncated: boolean }> {
+    const paths: string[] = [];
+    for await (const note of this.walk(folder, cap + 1)) paths.push(note);
+    return { paths: paths.slice(0, cap), truncated: paths.length > cap };
+  }
+
+  // Every note under a folder, breadth first, capped like search.
   async *walk(folder = '', cap = 2000): AsyncGenerator<string> {
     const folders = [folder];
     let yielded = 0;

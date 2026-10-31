@@ -1,38 +1,33 @@
-import { splitNote } from './notes.js';
+import { isAttachment, noteName, wikilinks } from './markdown.js';
 
 // Link graph of the vault, built per call: notes are keyed by lowercase basename, the way Obsidian
-// resolves [[wikilinks]]. Body links and frontmatter `related` both count, as in the Quartz site.
+// resolves [[wikilinks]]. Links anywhere outside code count, frontmatter `related` included;
+// embeds and attachments do not.
 export interface LinkGraph {
-  paths: Map<string, string>;          // key -> note path
+  paths: Map<string, string>;          // key -> note path (first one when names repeat)
+  duplicates: Map<string, string[]>;   // key -> every path sharing that name
   neighbors: Map<string, Set<string>>; // undirected, existing notes only
   unresolved: Map<string, Set<string>>; // missing target -> keys of notes linking to it
 }
 
 const key = (name: string) => name.trim().toLowerCase();
-const basename = (path: string) => path.split('/').pop()!.replace(/\.md$/, '');
 
 export function linksIn(content: string): string[] {
-  let related: unknown[] = [];
-  let body = content;
-  try {
-    const parts = splitNote(content);
-    body = parts.body;
-    if (Array.isArray(parts.frontmatter?.related)) related = parts.frontmatter.related;
-  } catch { /* unreadable frontmatter: body links still count */ }
-  const targets = [...body.matchAll(/(?<!!)\[\[([^\]|#^]+)(?:[#^][^\]|]*)?(?:\|[^\]]*)?\]\]/g)].map(match => match[1]);
-  for (const entry of related) {
-    const match = /^\[\[([^\]|#^]+)/.exec(String(entry));
-    if (match) targets.push(match[1]);
-  }
-  return targets.map(target => basename(target));
+  return wikilinks(content).filter(link => !link.embed && !isAttachment(link.target)).map(link => noteName(link.target));
 }
 
 export function buildGraph(notes: { path: string; content: string }[]): LinkGraph {
-  const paths = new Map(notes.map(note => [key(basename(note.path)), note.path]));
+  const paths = new Map<string, string>();
+  const duplicates = new Map<string, string[]>();
+  for (const note of notes) {
+    const name = key(noteName(note.path));
+    if (paths.has(name)) duplicates.set(name, [...(duplicates.get(name) ?? [paths.get(name)!]), note.path]);
+    else paths.set(name, note.path);
+  }
   const neighbors = new Map([...paths.keys()].map(name => [name, new Set<string>()]));
   const unresolved = new Map<string, Set<string>>();
   for (const note of notes) {
-    const source = key(basename(note.path));
+    const source = key(noteName(note.path));
     for (const target of linksIn(note.content)) {
       const destination = key(target);
       if (destination === source) continue;
@@ -45,16 +40,18 @@ export function buildGraph(notes: { path: string; content: string }[]): LinkGrap
       }
     }
   }
-  return { paths, neighbors, unresolved };
+  return { paths, duplicates, neighbors, unresolved };
 }
 
 function resolve(graph: LinkGraph, note: string): string {
-  const name = key(basename(note));
+  const name = key(noteName(note));
   if (!graph.paths.has(name)) throw new Error(`Note not found: ${note}`);
   return name;
 }
 
-const describe = (graph: LinkGraph, names: Iterable<string>) => [...names].map(name => basename(graph.paths.get(name)!));
+const describe = (graph: LinkGraph, names: Iterable<string>) => [...names].map(name => noteName(graph.paths.get(name)!));
+const ambiguity = (graph: LinkGraph) => graph.duplicates.size
+  ? { duplicateNames: Object.fromEntries(graph.duplicates) } : {};
 
 // Jaccard similarity of neighbourhoods: notes connected to the same notes, linked or not.
 export function similarNotes(graph: LinkGraph, note: string, limit = 10, minScore = 0.15) {
@@ -68,7 +65,7 @@ export function similarNotes(graph: LinkGraph, note: string, limit = 10, minScor
     const score = shared.length / new Set([...mine, ...theirs]).size;
     if (score >= minScore) results.push({ note: graph.paths.get(other)!, score: Number(score.toFixed(3)), linked: mine.has(other), shared: describe(graph, shared) });
   }
-  return { note: graph.paths.get(source)!, neighbors: mine.size, similar: results.sort((a, b) => b.score - a.score).slice(0, limit) };
+  return { note: graph.paths.get(source)!, neighbors: mine.size, similar: results.sort((a, b) => b.score - a.score).slice(0, limit), ...ambiguity(graph) };
 }
 
 // Adamic-Adar on notes not yet linked: shared neighbours count more when they are rare (low degree).
@@ -93,7 +90,8 @@ export function suggestLinks(graph: LinkGraph, note: string, limit = 10) {
     note: graph.paths.get(source)!,
     suggestions: ranked.map(([name, { score, via }]) => ({
       note: graph.paths.get(name)!, score: Number(score.toFixed(3)), relative: Math.round((score / top) * 100), via: describe(graph, via)
-    }))
+    })),
+    ...ambiguity(graph)
   };
 }
 
@@ -108,13 +106,20 @@ export function unresolvedLinks(graph: LinkGraph, limit = 50, minLinks = 1) {
 
 // Notes linking to `note`, with the line that holds the first link as context.
 export function backlinks(notes: { path: string; content: string }[], note: string) {
-  const target = key(basename(note));
-  if (!notes.some(item => key(basename(item.path)) === target)) throw new Error(`Note not found: ${note}`);
+  const target = key(noteName(note));
+  const own = notes.filter(item => key(noteName(item.path)) === target);
+  if (!own.length) throw new Error(`Note not found: ${note}`);
   const results = [];
   for (const item of notes) {
-    if (key(basename(item.path)) === target || !linksIn(item.content).some(link => key(link) === target)) continue;
-    const line = item.content.split('\n').find(text => text.includes('[[') && linksIn(text).some(link => key(link) === target));
-    results.push({ path: item.path, context: line?.trim().slice(0, 240) ?? '' });
+    if (key(noteName(item.path)) === target) continue;
+    const link = wikilinks(item.content).find(found => !found.embed && key(noteName(found.target)) === target);
+    if (!link) continue;
+    const start = item.content.lastIndexOf('\n', link.index) + 1;
+    const end = item.content.indexOf('\n', link.index);
+    results.push({ path: item.path, context: item.content.slice(start, end < 0 ? undefined : end).trim().slice(0, 240) });
   }
-  return { note: notes.find(item => key(basename(item.path)) === target)!.path, count: results.length, backlinks: results };
+  return {
+    note: own[0].path, count: results.length, backlinks: results,
+    ...(own.length > 1 ? { duplicateNames: own.map(item => item.path) } : {})
+  };
 }

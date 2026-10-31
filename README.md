@@ -42,14 +42,19 @@ statico e gia installato; il passaggio a OAuth richiede l'upgrade descritto sott
 | `similar_notes` | Note con vicinato simile nel grafo dei link (Jaccard), con i vicini condivisi |
 | `suggest_links` | Note non ancora linkate che probabilmente dovrebbero esserlo (Adamic-Adar), con il "via" |
 | `unresolved_links` | Wikilink verso note che non esistono, i piu citati per primi |
-| `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note |
+| `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note e riporta quali note ha aggiornato |
 | `delete_note` | Elimina dal vault dopo una copia recuperabile |
 
 Prompt: `save_to_obsidian` trasforma una discussione in chat o un item Zotero in una
 nota che segue il template (vedi sotto) e la mostra prima di salvarla.
 
 Solo file `.md`, fino a 1 MB. Cartelle nascoste e link simbolici sono esclusi.
-La ricerca, la validazione di cartelle e il grafo esaminano al massimo 2000 note.
+La ricerca, la validazione di cartelle e il grafo esaminano al massimo 2000 note; oltre quel
+limite il risultato contiene `truncated: true`. Le note illeggibili (non UTF-8 o oltre 1 MB) non
+bloccano i tool sull'intero vault: vengono saltate ed elencate in `skipped` con il motivo.
+I link dentro blocchi di codice non contano, quelli nelle tabelle (`[[Nota\|alias]]`) si'; gli
+allegati (PDF, immagini) non sono note. Nomi di nota ripetuti in cartelle diverse vengono
+segnalati in `duplicateNames`.
 Gli aggiornamenti, gli spostamenti e le eliminazioni richiedono la versione
 restituita da `read_note`. La creazione fallisce se la nota esiste gia.
 
@@ -66,16 +71,16 @@ nel testo.
   Le note fuori scope si scrivono senza controlli.
 - `fields`: l'ordine dei campi, `cssclasses`, `subclasses`, `related`, `aliases`, `reference`, `tags`.
 - `cssclasses.values`: i codici ANZSRC FoR 2020 a 6 cifre, con lo stesso slug dei tag `sub/` di
-  Zotero (es. `500310-phenomenology`), al massimo 3 per nota. La lista viene dai tag Zotero:
-  quando ne aggiungi uno nuovo in Zotero, aggiungilo qui.
+  Zotero (es. `500310-phenomenology`), al massimo 3 per nota. La lista viene dai tag Zotero: un
+  codice ben formato che non e' nella lista da' solo un avviso; aggiungilo qui quando lo usi.
 - `subclasses.known`: il vocabolario proprio (concetti, correnti, periodi); un valore nuovo da solo un avviso.
 - `aliases.min`: numero minimo consigliato di alias (avviso).
 - `template.headings`: i titoli `####` ammessi; `template.exclude` le cartelle d'archivio con la
   struttura precedente (`Zettelkasten/Storia della filosofia/`).
 
-Errori (bloccano la scrittura nello scope): frontmatter mancante o non valido, codice ANZSRC
-sconosciuto, piu di 3 codici, `related` non scritto come wikilink, campi non lista.
-Avvisi: subclass nuova, link a se stessa o doppioni in `related`, pochi alias, campo estraneo,
+Errori (bloccano la scrittura nello scope, anche quando una nota vi entra con `move_note`):
+frontmatter mancante o non valido, valore di `cssclasses` che non ha la forma di un codice, piu di 3 codici, `related` non scritto come wikilink, campi non lista.
+Avvisi: codice ANZSRC non in lista, subclass nuova, link a se stessa o doppioni in `related`, pochi alias, campo estraneo,
 titolo `####` fuori dal template, riga vuota dopo `---`.
 
 Template, in inglese, titoli `####`, sottosezioni `#####`, sezioni tutte facoltative:
@@ -257,8 +262,13 @@ sono validi 60 secondi e richiedono il verificatore PKCE per essere scambiati.
   costituiscono una transazione con rclone o altri editor: una modifica esterna
   tra il controllo e la scrittura puo ancora creare un conflitto. Evita modifiche
   simultanee alla stessa nota e conserva backup indipendenti.
-- Rinominando una nota, `move_note` riscrive i wikilink nelle note Markdown, non i riferimenti
-  nei Canvas. Uno spostamento tra cartelle senza cambio di nome non richiede modifiche.
+- Rinominando una nota, `move_note` prepara tutte le modifiche prima di spostare, poi riscrive i
+  wikilink nelle note Markdown (non nei Canvas) e riporta le note aggiornate e quelle eventualmente
+  non aggiornate. Se un'altra nota ha lo stesso nome, riscrive solo i link che indicano il percorso.
+  Uno spostamento tra cartelle senza cambio di nome non richiede modifiche.
+- `patch_frontmatter` cambia solo i campi indicati: gli altri restano identici, con tipi,
+  virgolette e commenti. Le note con a capo CRLF li conservano.
+- Non si possono creare file o cartelle che differiscono solo per maiuscole da quelli esistenti.
 - WebDAV non esegue Obsidian. Questo server non comanda plugin, palette comandi,
   nota attiva o interfaccia: occorre un'integrazione separata con l'app aperta.
 - Ogni copia recuperabile e un JSON con `path` e `content` nella cartella backup.

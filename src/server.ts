@@ -6,6 +6,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { z } from 'zod/v4';
 import { Vault } from './vault.js';
 import { appendText, matchesQuery, renameLinks } from './edit.js';
+import { noteName as baseName } from './markdown.js';
 import { backlinks, buildGraph, similarNotes, suggestLinks, unresolvedLinks } from './graph.js';
 import { inScope, loadSchema, patchFrontmatter, validateNote, type NoteSchema } from './notes.js';
 import { createOAuth, type OAuthOptions } from './oauth.js';
@@ -82,54 +83,69 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     return { ...(await vault.write(path, content, expectedVersion)), issues };
   }));
 
+  // Every readable note under a folder. Unreadable notes (not UTF-8, over 1 MB) are skipped and
+  // listed instead of failing the whole call; `truncated` reports the 2000-note cap.
+  const readAll = async (folder = '') => {
+    const { paths, truncated } = await vault.notes(folder);
+    const notes: { path: string; content: string; version: string }[] = [];
+    const skipped: { path: string; reason: string }[] = [];
+    for (const note of paths) {
+      try {
+        const { content, version } = await vault.read(note);
+        notes.push({ path: note, content, version });
+      } catch (failure) {
+        skipped.push({ path: note, reason: (failure as Error).message });
+      }
+    }
+    return { notes, skipped, truncated };
+  };
+  const extras = (scan: { skipped: unknown[]; truncated: boolean }) => ({
+    ...(scan.skipped.length ? { skipped: scan.skipped } : {}), ...(scan.truncated ? { truncated: true } : {})
+  });
+
   server.registerTool('validate_note', {
-    description: 'Check one note, or every note in a folder, against the note schema (ANZSRC codes in cssclasses, subclasses, related wikilinks, aliases, reference, tags, sections of full notes). Read only. With a folder, only notes inside the schema scope are checked; notes without issues are counted but not listed.',
+    description: 'Check one note, or every note in a folder, against the note schema (ANZSRC codes in cssclasses, subclasses, related wikilinks, aliases, reference, tags, template headings). Read only. With a folder, only notes inside the schema scope are checked; notes without issues are counted but not listed.',
     inputSchema: z.object({ path: z.string().max(1000).describe('A note path (ending in .md) or a folder ("" for the whole vault).') }),
     annotations: readOnly
   }, async ({ path }) => respond(async () => {
     const report = (note: string, content: string) => ({ path: note, inScope: inScope(note, schema), issues: validateNote(note, content, schema) });
     if (path.endsWith('.md')) return report(path, (await vault.read(path)).content);
     // Notes outside the schema scope (e.g. Da rivedere/) are counted, not checked.
-    const notes: ReturnType<typeof report>[] = [];
-    let outOfScope = 0;
-    for await (const note of vault.walk(path)) {
-      if (inScope(note, schema)) notes.push(report(note, (await vault.read(note)).content));
-      else outOfScope++;
-    }
+    const scan = await readAll(path);
+    const notes = scan.notes.filter(note => inScope(note.path, schema)).map(note => report(note.path, note.content));
+    const outOfScope = scan.notes.length - notes.length;
     const withIssues = notes.filter(note => note.issues.length);
     return {
       folder: path, checked: notes.length, outOfScope,
       withErrors: notes.filter(note => note.issues.some(issue => issue.level === 'error')).length,
       withWarningsOnly: withIssues.filter(note => note.issues.every(issue => issue.level === 'warning')).length,
-      notes: withIssues
+      notes: withIssues, ...extras(scan)
     };
   }));
 
-  const allNotes = async () => {
-    const notes = [];
-    for await (const note of vault.walk('')) notes.push({ path: note, content: (await vault.read(note)).content });
-    return notes;
+  const withGraph = async <Result extends object>(use: (graph: ReturnType<typeof buildGraph>) => Result) => {
+    const scan = await readAll();
+    return { ...use(buildGraph(scan.notes)), ...extras(scan) };
   };
-  const graph = async () => buildGraph(await allNotes());
   const noteName = z.string().min(1).max(1000).describe('Note path or bare note name, e.g. Heidegger or Zettelkasten/Heidegger.md.');
 
   server.registerTool('similar_notes', {
     description: 'Notes with a similar neighbourhood in the link graph (Jaccard on body links + frontmatter related), linked or not. Each result lists the shared neighbours that explain it. Use it to answer "what is close to X?".',
     inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(50).default(10), minScore: z.number().min(0).max(1).default(0.15) }),
     annotations: readOnly
-  }, async ({ note, limit, minScore }) => respond(async () => similarNotes(await graph(), note, limit, minScore)));
+  }, async ({ note, limit, minScore }) => respond(() => withGraph(graph => similarNotes(graph, note, limit, minScore))));
 
   server.registerTool('suggest_links', {
     description: 'Notes not yet linked to this one that probably should be (Adamic-Adar: shared neighbours, rare ones weigh more). "via" explains each suggestion. Use it to fill "related" with notes that exist; propose before patching.',
     inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(50).default(10) }),
     annotations: readOnly
-  }, async ({ note, limit }) => respond(async () => suggestLinks(await graph(), note, limit)));
+  }, async ({ note, limit }) => respond(() => withGraph(graph => suggestLinks(graph, note, limit))));
 
   server.registerTool('unresolved_links', {
-    description: 'Wikilinks pointing to notes that do not exist yet, most linked first: the list of concepts still to write.',
+    description: 'Wikilinks pointing to notes that do not exist yet, most linked first: the list of concepts still to write. Attachments (PDF, images) and links inside code are ignored.',
     inputSchema: z.object({ limit: z.number().int().min(1).max(500).default(50), minLinks: z.number().int().min(1).default(1) }),
     annotations: readOnly
-  }, async ({ limit, minLinks }) => respond(async () => unresolvedLinks(await graph(), limit, minLinks)));
+  }, async ({ limit, minLinks }) => respond(() => withGraph(graph => unresolvedLinks(graph, limit, minLinks))));
 
   server.registerPrompt('save_to_obsidian', {
     title: 'Save to Obsidian',
@@ -175,25 +191,53 @@ Show me the note before writing it. Then save it with write_note in Zettelkasten
   }));
 
   server.registerTool('move_note', {
-    description: 'Move or rename a note without overwriting an existing destination. Requires its read version. When the file name changes, wikilinks to it are rewritten in every note (each change is backed up); a move between folders keeps links working without edits. Ask the user before moving.',
+    description: 'Move or rename a note without overwriting an existing destination. Requires its read version. When the file name changes, wikilinks to it are rewritten in every note (each change is backed up); a move between folders keeps links working without edits. A note moved into the schema scope must pass the schema. The result lists every note updated and any that could not be. Ask the user before moving.',
     inputSchema: z.object({ path: notePath, destination: notePath, expectedVersion: version }),
     annotations: writes
   }, async ({ path, destination, expectedVersion }) => respond(async () => {
-    const name = (file: string) => file.split('/').pop()!.replace(/\.md$/, '');
+    const current = await vault.read(path);
+    if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
+    const issues = inScope(destination, schema) && !inScope(path, schema) ? checked(schema, destination, current.content) : [];
+    // Plan every link rewrite before touching anything, so a failure cannot leave the move half done.
+    const oldName = baseName(path), newName = baseName(destination);
+    const plan: { path: string; content: string; version: string }[] = [];
+    let scan = { notes: [] as { path: string; content: string; version: string }[], skipped: [] as { path: string; reason: string }[], truncated: false };
+    let ambiguous = false;
+    if (oldName.toLowerCase() !== newName.toLowerCase()) {
+      scan = await readAll();
+      // Another note with the same name: bare [[Old]] links may point to it, so rewrite only links that spell this path.
+      ambiguous = scan.notes.some(note => note.path !== path && baseName(note.path).toLowerCase() === oldName.toLowerCase());
+      for (const note of scan.notes) {
+        if (note.path === path) continue;
+        const rewritten = renameLinks(note.content, oldName, newName, ambiguous ? path : undefined);
+        if (rewritten.count) plan.push({ path: note.path, content: rewritten.content, version: note.version });
+      }
+      const ownLinks = renameLinks(current.content, oldName, newName, ambiguous ? path : undefined);
+      if (ownLinks.count) plan.push({ path: destination, content: ownLinks.content, version: '' });
+    }
     const moved = await vault.move(path, destination, expectedVersion);
     const updated: string[] = [];
-    if (name(path).toLowerCase() !== name(destination).toLowerCase()) {
-      for await (const note of vault.walk('')) {
-        const current = await vault.read(note);
-        const { content, count } = renameLinks(current.content, name(path), name(destination));
-        if (count) { await vault.write(note, content, current.version); updated.push(note); }
+    const failed: { path: string; reason: string }[] = [];
+    for (const change of plan) {
+      try {
+        const version = change.version || moved.version;
+        await vault.write(change.path, change.content, version);
+        updated.push(change.path);
+      } catch (failure) {
+        failed.push({ path: change.path, reason: (failure as Error).message });
       }
     }
-    return { path: moved.path, version: moved.version, backupId: moved.backupId, linksUpdatedIn: updated };
+    return {
+      path: moved.path, backupId: moved.backupId, linksUpdatedIn: updated,
+      ...(failed.length ? { linksNotUpdated: failed } : {}),
+      ...(ambiguous ? { warning: `Another note is also named ${oldName}: only links spelling the folder path were rewritten.` } : {}),
+      ...(scan.skipped.length ? { notScanned: scan.skipped } : {}), ...(scan.truncated ? { truncated: true } : {}),
+      issues
+    };
   }));
 
   server.registerTool('append_note', {
-    description: 'Add text at the end of a note, or at the end of one section (heading, e.g. "Notable Quotes"), without rewriting the rest. Requires the read version. Same schema check as write_note.',
+    description: 'Add text at the end of a note, or at the end of one section (heading, e.g. "To Verify"), without rewriting the rest. Headings inside code blocks are ignored. Requires the read version. Same schema check as write_note.',
     inputSchema: z.object({ path: notePath, expectedVersion: version, text: z.string().min(1).max(200_000), heading: z.string().max(300).optional() }),
     annotations: writes
   }, async ({ path, expectedVersion, text, heading }) => respond(async () => {
@@ -207,7 +251,7 @@ Show me the note before writing it. Then save it with write_note in Zettelkasten
   server.registerTool('backlinks', {
     description: 'Notes that link to a note (body links and frontmatter related), with the line of the link as context.',
     inputSchema: z.object({ note: noteName }), annotations: readOnly
-  }, async ({ note }) => respond(async () => backlinks(await allNotes(), note)));
+  }, async ({ note }) => respond(async () => { const scan = await readAll(); return { ...backlinks(scan.notes, note), ...extras(scan) }; }));
 
   server.registerTool('query_notes', {
     description: 'Find notes by frontmatter field: an exact value (field "subclasses", value "Phenomenology"; field "tags", value "cited/phd") or a prefix (field "cssclasses", prefix "50" for a whole ANZSRC division, "5003" for a group). Read only.',
@@ -216,12 +260,13 @@ Show me the note before writing it. Then save it with write_note in Zettelkasten
       folder: z.string().max(1000).default(''), limit: z.number().int().min(1).max(500).default(100)
     }), annotations: readOnly
   }, async ({ field, value, prefix, folder, limit }) => respond(async () => {
+    const scan = await readAll(folder);
     const matches = [];
-    for await (const note of vault.walk(folder)) {
-      const values = matchesQuery((await vault.read(note)).content, field, value, prefix);
-      if (values) matches.push({ path: note, [field]: values });
+    for (const note of scan.notes) {
+      const values = matchesQuery(note.content, field, value, prefix);
+      if (values) matches.push({ path: note.path, [field]: values });
     }
-    return { total: matches.length, notes: matches.slice(0, limit), truncated: matches.length > limit };
+    return { total: matches.length, notes: matches.slice(0, limit), limited: matches.length > limit, ...extras(scan) };
   }));
 
   server.registerTool('delete_note', {

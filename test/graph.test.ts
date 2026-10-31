@@ -35,3 +35,13 @@ test('unresolved links are ranked by how many notes want them', () => {
   assert.deepEqual(result.links[0], { target: 'Being and Time', linkedFrom: 2, from: ['Heidegger', 'Lonely'] });
   assert.equal(result.total, 2);
 });
+
+test('table links resolve; attachments, embeds and code are not links; duplicate names are reported', () => {
+  const g = buildGraph([
+    { path: 'A.md', content: '| [[Kant\\|K.]] | [[paper.pdf]] ![[Kant]] `[[Hegel]]`\n```\n[[Hegel]]\n```\n[[Web 2.0]]' },
+    { path: 'Kant.md', content: '' }, { path: 'x/Kant.md', content: '' }
+  ]);
+  assert.deepEqual([...g.neighbors.get('a')!], ['kant']);
+  assert.deepEqual(unresolvedLinks(g).links.map(link => link.target), ['Web 2.0']);
+  assert.deepEqual(similarNotes(g, 'A', 10, 0).duplicateNames, { kant: ['Kant.md', 'x/Kant.md'] });
+});
