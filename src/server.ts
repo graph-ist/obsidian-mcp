@@ -5,6 +5,9 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { z } from 'zod/v4';
 import { Vault } from './vault.js';
+import { appendText, matchesQuery, renameLinks } from './edit.js';
+import { backlinks, buildGraph, similarNotes, suggestLinks, unresolvedLinks } from './graph.js';
+import { inScope, loadSchema, patchFrontmatter, validateNote, type NoteSchema } from './notes.js';
 import { createOAuth, type OAuthOptions } from './oauth.js';
 
 async function respond(operation: () => Promise<unknown>) {
@@ -17,8 +20,19 @@ async function respond(operation: () => Promise<unknown>) {
   }
 }
 
-export function createServer(vault: Vault) {
-  const server = new McpServer({ name: 'obsidian-vault', version: '0.1.0' });
+// Notes inside the schema scope cannot be written with errors; warnings are returned with the result.
+function checked(schema: NoteSchema, path: string, content: string) {
+  const issues = validateNote(path, content, schema);
+  const scoped = inScope(path, schema);
+  const errors = issues.filter(issue => issue.level === 'error');
+  if (scoped && errors.length) {
+    throw new Error(`Note rejected by the schema, nothing was written:\n${errors.map(issue => `- ${issue.message}`).join('\n')}`);
+  }
+  return scoped ? issues : [];
+}
+
+export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
+  const server = new McpServer({ name: 'obsidian-vault', version: '0.2.0' });
   const notePath = z.string().min(1).max(1000).describe('Relative Markdown path, for example Notes/idea.md.');
   const version = z.string().regex(/^[a-f0-9]{64}$/).describe('Exact version returned by read_note. Read again on conflict.');
   const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
@@ -45,16 +59,170 @@ export function createServer(vault: Vault) {
   }, async ({ query, limit }) => respond(() => vault.search(query, limit)));
 
   server.registerTool('write_note', {
-    description: 'Create or update a Markdown note. Omit expectedVersion only to create a NEW note; updates require the read version. Existing content is backed up.',
+    description: 'Create or update a Markdown note. Omit expectedVersion only to create a NEW note; updates require the read version. Existing content is backed up. Notes inside the schema scope (schema/note-schema.json) must pass the note schema: errors reject the write, warnings come back in "issues". For frontmatter-only changes use patch_frontmatter.',
     inputSchema: z.object({ path: notePath, content: z.string().max(1_000_000), expectedVersion: version.optional() }),
     annotations: writes
-  }, async ({ path, content, expectedVersion }) => respond(() => vault.write(path, content, expectedVersion)));
+  }, async ({ path, content, expectedVersion }) => respond(async () => {
+    const issues = checked(schema, path, content);
+    return { ...(await vault.write(path, content, expectedVersion)), issues };
+  }));
+
+  server.registerTool('patch_frontmatter', {
+    description: 'Change frontmatter fields without rewriting the note body. "set" replaces whole fields (lists included); "remove" deletes fields. Requires the read version. Field order and the vault YAML style are kept. Same schema check as write_note.',
+    inputSchema: z.object({
+      path: notePath, expectedVersion: version,
+      set: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.null()])).default({}),
+      remove: z.array(z.string()).default([])
+    }), annotations: writes
+  }, async ({ path, expectedVersion, set, remove }) => respond(async () => {
+    const current = await vault.read(path);
+    if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
+    const content = patchFrontmatter(current.content, set, remove, schema.fields);
+    const issues = checked(schema, path, content);
+    return { ...(await vault.write(path, content, expectedVersion)), issues };
+  }));
+
+  server.registerTool('validate_note', {
+    description: 'Check one note, or every note in a folder, against the note schema (ANZSRC codes in cssclasses, subclasses, related wikilinks, aliases, reference, tags, sections of full notes). Read only. With a folder, only notes inside the schema scope are checked; notes without issues are counted but not listed.',
+    inputSchema: z.object({ path: z.string().max(1000).describe('A note path (ending in .md) or a folder ("" for the whole vault).') }),
+    annotations: readOnly
+  }, async ({ path }) => respond(async () => {
+    const report = (note: string, content: string) => ({ path: note, inScope: inScope(note, schema), issues: validateNote(note, content, schema) });
+    if (path.endsWith('.md')) return report(path, (await vault.read(path)).content);
+    // Notes outside the schema scope (e.g. Da rivedere/) are counted, not checked.
+    const notes: ReturnType<typeof report>[] = [];
+    let outOfScope = 0;
+    for await (const note of vault.walk(path)) {
+      if (inScope(note, schema)) notes.push(report(note, (await vault.read(note)).content));
+      else outOfScope++;
+    }
+    const withIssues = notes.filter(note => note.issues.length);
+    return {
+      folder: path, checked: notes.length, outOfScope,
+      withErrors: notes.filter(note => note.issues.some(issue => issue.level === 'error')).length,
+      withWarningsOnly: withIssues.filter(note => note.issues.every(issue => issue.level === 'warning')).length,
+      notes: withIssues
+    };
+  }));
+
+  const allNotes = async () => {
+    const notes = [];
+    for await (const note of vault.walk('')) notes.push({ path: note, content: (await vault.read(note)).content });
+    return notes;
+  };
+  const graph = async () => buildGraph(await allNotes());
+  const noteName = z.string().min(1).max(1000).describe('Note path or bare note name, e.g. Heidegger or Zettelkasten/Heidegger.md.');
+
+  server.registerTool('similar_notes', {
+    description: 'Notes with a similar neighbourhood in the link graph (Jaccard on body links + frontmatter related), linked or not. Each result lists the shared neighbours that explain it. Use it to answer "what is close to X?".',
+    inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(50).default(10), minScore: z.number().min(0).max(1).default(0.15) }),
+    annotations: readOnly
+  }, async ({ note, limit, minScore }) => respond(async () => similarNotes(await graph(), note, limit, minScore)));
+
+  server.registerTool('suggest_links', {
+    description: 'Notes not yet linked to this one that probably should be (Adamic-Adar: shared neighbours, rare ones weigh more). "via" explains each suggestion. Use it to fill "related" with notes that exist; propose before patching.',
+    inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(50).default(10) }),
+    annotations: readOnly
+  }, async ({ note, limit }) => respond(async () => suggestLinks(await graph(), note, limit)));
+
+  server.registerTool('unresolved_links', {
+    description: 'Wikilinks pointing to notes that do not exist yet, most linked first: the list of concepts still to write.',
+    inputSchema: z.object({ limit: z.number().int().min(1).max(500).default(50), minLinks: z.number().int().min(1).default(1) }),
+    annotations: readOnly
+  }, async ({ limit, minLinks }) => respond(async () => unresolvedLinks(await graph(), limit, minLinks)));
+
+  server.registerPrompt('save_to_obsidian', {
+    title: 'Save to Obsidian',
+    description: 'Turn a reading discussion from this chat, or a Zotero item, into a note that follows the vault template.',
+    argsSchema: z.object({ source: z.string().min(1).describe('Book, essay or paper: title, DOI or Zotero key; "this chat" for the current discussion') })
+  }, ({ source }) => ({
+    messages: [{
+      role: 'user' as const,
+      content: {
+        type: 'text' as const,
+        text: `Write or update the Obsidian note for: ${source}
+
+Zotero holds only sources (PDF, highlights, notes inside the PDF); every note lives in Obsidian. Write in English.
+If a note for this source already exists (search_notes, query_notes), update it with patch_frontmatter / append_note instead of creating a new one.
+
+Frontmatter, in this order:
+- cssclasses: the Zotero item's sub/ tags without the prefix (ANZSRC codes, at most 3; ask me if there are more).
+- subclasses: concepts, movements or periods from my vocabulary; prefer existing values (query_notes on subclasses).
+- related: 3-6 wikilinks to notes that exist and are argued in the body.
+- aliases: at least 3 lowercase keywords of 1-2 words, for the Virtual Linker.
+- reference: the APA reference from the Zotero MCP (format_citations), plain text.
+- tags: the item's cited/* and core/seminal tags.
+
+Body: level-4 headings (####) in this order, subsections with #####. Leave out empty sections.
+- Reading Path: edition read and a checklist of chapters or sections.
+- Source layer, choose by the text:
+  - essay (philosophy, theory, design): Thesis, Argument (premises, steps, examples), Context and Interlocutors.
+  - empirical paper (e.g. an HCI user study): Research Question, Context, Method (participants, design, measures), Results, Limitations.
+  - Context and Interlocutors / Context includes a mermaid lineage diagram:
+    flowchart TD; predecessors at the top, arrows mean "influenced", the author of the text at the bottom where the arrows converge (e.g. Kant --> Helmholtz --> Floridi).
+    Nodes are surnames spelled like the person notes in the vault, hyphens for spaces, no wikilinks inside.
+    Concept nodes only when needed, with a label (TuringTest[Turing Test]); edge labels only for a specific debt (Searle --> |Chinese Room critique| TuringTest).
+    End with "class <every person node> internal-link;" (people only, not concepts).
+- My Observations: my reasoning from the chat, in my words, by chapter. Never mix in your own points.
+- Claude's Additions: only points you verified on the text, each with its page (e.g. "p. 32").
+- Connections: links to existing notes, each with one sentence saying why. Read the candidates; for a note with few links, search the text of the vault.
+- Open Questions.
+- To Verify: everything not verified (your unverified points, quotations, attributions) as a checklist, one line per item: the claim and where to check it (page or source). No full arguments here; questions go to Open Questions. Once verified, an item moves to Claude's Additions with its page.
+
+Show me the note before writing it. Then save it with write_note in Zettelkasten/Reading Notes/<title without subtitle>.md and report any validator warnings.`
+      }
+    }]
+  }));
 
   server.registerTool('move_note', {
-    description: 'Move a note without overwriting an existing destination. Requires its read version. Does NOT update wikilinks. Ask the user before moving.',
+    description: 'Move or rename a note without overwriting an existing destination. Requires its read version. When the file name changes, wikilinks to it are rewritten in every note (each change is backed up); a move between folders keeps links working without edits. Ask the user before moving.',
     inputSchema: z.object({ path: notePath, destination: notePath, expectedVersion: version }),
     annotations: writes
-  }, async ({ path, destination, expectedVersion }) => respond(() => vault.move(path, destination, expectedVersion)));
+  }, async ({ path, destination, expectedVersion }) => respond(async () => {
+    const name = (file: string) => file.split('/').pop()!.replace(/\.md$/, '');
+    const moved = await vault.move(path, destination, expectedVersion);
+    const updated: string[] = [];
+    if (name(path).toLowerCase() !== name(destination).toLowerCase()) {
+      for await (const note of vault.walk('')) {
+        const current = await vault.read(note);
+        const { content, count } = renameLinks(current.content, name(path), name(destination));
+        if (count) { await vault.write(note, content, current.version); updated.push(note); }
+      }
+    }
+    return { path: moved.path, version: moved.version, backupId: moved.backupId, linksUpdatedIn: updated };
+  }));
+
+  server.registerTool('append_note', {
+    description: 'Add text at the end of a note, or at the end of one section (heading, e.g. "Notable Quotes"), without rewriting the rest. Requires the read version. Same schema check as write_note.',
+    inputSchema: z.object({ path: notePath, expectedVersion: version, text: z.string().min(1).max(200_000), heading: z.string().max(300).optional() }),
+    annotations: writes
+  }, async ({ path, expectedVersion, text, heading }) => respond(async () => {
+    const current = await vault.read(path);
+    if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
+    const content = appendText(current.content, text, heading);
+    const issues = checked(schema, path, content);
+    return { ...(await vault.write(path, content, expectedVersion)), issues };
+  }));
+
+  server.registerTool('backlinks', {
+    description: 'Notes that link to a note (body links and frontmatter related), with the line of the link as context.',
+    inputSchema: z.object({ note: noteName }), annotations: readOnly
+  }, async ({ note }) => respond(async () => backlinks(await allNotes(), note)));
+
+  server.registerTool('query_notes', {
+    description: 'Find notes by frontmatter field: an exact value (field "subclasses", value "Phenomenology"; field "tags", value "cited/phd") or a prefix (field "cssclasses", prefix "50" for a whole ANZSRC division, "5003" for a group). Read only.',
+    inputSchema: z.object({
+      field: z.string().min(1).max(100), value: z.string().max(300).optional(), prefix: z.string().max(100).optional(),
+      folder: z.string().max(1000).default(''), limit: z.number().int().min(1).max(500).default(100)
+    }), annotations: readOnly
+  }, async ({ field, value, prefix, folder, limit }) => respond(async () => {
+    const matches = [];
+    for await (const note of vault.walk(folder)) {
+      const values = matchesQuery((await vault.read(note)).content, field, value, prefix);
+      if (values) matches.push({ path: note, [field]: values });
+    }
+    return { total: matches.length, notes: matches.slice(0, limit), truncated: matches.length > limit };
+  }));
 
   server.registerTool('delete_note', {
     description: 'Remove a note from the synchronized vault, keeping a recovery copy outside it. Requires its read version. Ask the user before deleting.',

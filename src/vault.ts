@@ -124,6 +124,24 @@ export class Vault {
     });
   }
 
+  // Every note under a folder, depth first, capped like search.
+  async *walk(folder = '', cap = 2000): AsyncGenerator<string> {
+    const folders = [folder];
+    let yielded = 0;
+    while (folders.length) {
+      const current = folders.shift()!;
+      for (let offset = 0; ; offset += 200) {
+        const page = await this.list(current, 200, offset);
+        for (const entry of page.entries) {
+          if (entry.type === 'directory') folders.push(entry.path);
+          else if (yielded++ < cap) yield entry.path;
+          else return;
+        }
+        if (page.nextOffset === null) break;
+      }
+    }
+  }
+
   async search(query: string, limit = 20) {
     const matches: { path: string; snippet: string }[] = [];
     const folders = [''];

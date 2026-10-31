@@ -23,7 +23,7 @@ leggibili, senza cifratura end-to-end di Remotely Save.
 
 Il Pi verificato e `pi@aegis.local`; il WebDAV esistente serve
 `/srv/obsidian-webdav` con utente e gruppo `obsidian-dav`.
-Il vault e `Test sync`, in `/srv/obsidian-webdav/Test sync`. Il servizio con token
+Il vault e `Knowledge Graph`, in `/srv/obsidian-webdav/Knowledge Graph`. Il servizio con token
 statico e gia installato; il passaggio a OAuth richiede l'upgrade descritto sotto.
 
 ## Strumenti
@@ -33,14 +33,70 @@ statico e gia installato; il passaggio a OAuth richiede l'upgrade descritto sott
 | `list_notes` | Note e cartelle, con paginazione |
 | `read_note` | Contenuto e versione SHA-256 |
 | `search_notes` | Ricerca letterale in percorsi e contenuti |
-| `write_note` | Crea oppure aggiorna con versione attesa |
-| `move_note` | Sposta senza sovrascrivere la destinazione |
+| `write_note` | Crea oppure aggiorna con versione attesa; controlla lo schema prima di scrivere |
+| `patch_frontmatter` | Cambia o toglie campi del frontmatter senza toccare il corpo |
+| `append_note` | Aggiunge testo in fondo alla nota o in fondo a una sezione |
+| `validate_note` | Controlla una nota o una cartella rispetto allo schema |
+| `query_notes` | Cerca per campo del frontmatter: valore esatto o prefisso (es. `cssclasses` con prefisso `50`) |
+| `backlinks` | Note che linkano una nota, con la riga del link |
+| `similar_notes` | Note con vicinato simile nel grafo dei link (Jaccard), con i vicini condivisi |
+| `suggest_links` | Note non ancora linkate che probabilmente dovrebbero esserlo (Adamic-Adar), con il "via" |
+| `unresolved_links` | Wikilink verso note che non esistono, i piu citati per primi |
+| `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note |
 | `delete_note` | Elimina dal vault dopo una copia recuperabile |
 
+Prompt: `save_to_obsidian` trasforma una discussione in chat o un item Zotero in una
+nota che segue il template (vedi sotto) e la mostra prima di salvarla.
+
 Solo file `.md`, fino a 1 MB. Cartelle nascoste e link simbolici sono esclusi.
-La ricerca esamina al massimo 2000 note e segnala risultati limitati.
+La ricerca, la validazione di cartelle e il grafo esaminano al massimo 2000 note.
 Gli aggiornamenti, gli spostamenti e le eliminazioni richiedono la versione
 restituita da `read_note`. La creazione fallisce se la nota esiste gia.
+
+Il grafo usa i link nel testo e quelli nel campo `related` del frontmatter, risolti per
+nome come in Obsidian, e viene ricostruito a ogni chiamata. I tool di grafo servono per
+le domande su tutto il vault; per collegare una singola nota conviene leggere e cercare
+nel testo.
+
+## Schema e template delle note
+
+`schema/note-schema.json` definisce:
+
+- `scope`: le cartelle soggette allo schema (`Zettelkasten/`, tranne `Zettelkasten/Da rivedere/`).
+  Le note fuori scope si scrivono senza controlli.
+- `fields`: l'ordine dei campi, `cssclasses`, `subclasses`, `related`, `aliases`, `reference`, `tags`.
+- `cssclasses.values`: i codici ANZSRC FoR 2020 a 6 cifre, con lo stesso slug dei tag `sub/` di
+  Zotero (es. `500310-phenomenology`), al massimo 3 per nota. La lista viene dai tag Zotero:
+  quando ne aggiungi uno nuovo in Zotero, aggiungilo qui.
+- `subclasses.known`: il vocabolario proprio (concetti, correnti, periodi); un valore nuovo da solo un avviso.
+- `aliases.min`: numero minimo consigliato di alias (avviso).
+- `template.headings`: i titoli `####` ammessi; `template.exclude` le cartelle d'archivio con la
+  struttura precedente (`Zettelkasten/Storia della filosofia/`).
+
+Errori (bloccano la scrittura nello scope): frontmatter mancante o non valido, codice ANZSRC
+sconosciuto, piu di 3 codici, `related` non scritto come wikilink, campi non lista.
+Avvisi: subclass nuova, link a se stessa o doppioni in `related`, pochi alias, campo estraneo,
+titolo `####` fuori dal template, riga vuota dopo `---`.
+
+Template, in inglese, titoli `####`, sottosezioni `#####`, sezioni tutte facoltative:
+
+```text
+Reading Path                      edizione letta e checklist dei capitoli
+Thesis / Argument /               saggio (filosofia, teoria, design)
+  Context and Interlocutors
+Research Question / Context /     paper empirico (es. user study HCI)
+  Method / Results / Limitations
+My Observations                   il ragionamento dell'utente, con le sue parole
+Claude's Additions                solo punti verificati sul testo, con pagina
+Connections                       link a note esistenti, con la frase che li giustifica
+Open Questions
+To Verify                         una riga per voce: cosa controllare e dove
+Definition / Cited by             note hub (persona, concetto, libro), con tabella dataview
+```
+
+Il contesto contiene un diagramma mermaid della genealogia: `flowchart TD`, predecessori in
+alto, frecce come "ha influenzato", autore in fondo; nodi con i cognomi scritti come le note
+delle persone e riga finale `class ... internal-link;`.
 
 ## Sviluppo locale
 
@@ -92,13 +148,31 @@ npm prune --omit=dev
 sudo node deploy/install.mjs
 ```
 
-L'installer richiede il vault esistente `/srv/obsidian-webdav/Test sync`, accessibile
+L'installer richiede il vault esistente `/srv/obsidian-webdav/Knowledge Graph`, accessibile
 a `obsidian-dav`, e chiede di scegliere e confermare una password di almeno 12
 caratteri. L'input e nascosto e viene salvato soltanto l'hash scrypt. Non crea
 vault e non modifica note o proprietari del vault. Se il percorso manca, si ferma
 prima di installare il servizio. Dopo le verifiche locali aggiunge le route
 Funnel dedicate a Obsidian, lasciando le altre inalterate. Mantieni la
-configurazione Remotely Save del vault `Test sync`. Non inviare password in chat.
+configurazione Remotely Save del vault `Knowledge Graph`. Non inviare password in chat.
+
+### Aggiornamento del programma
+
+Per una nuova versione su un'installazione esistente, dopo `npm ci`, `npm run build` e
+`npm test` nella home di `pi`, copia programma e schema mantenendo una copia della versione
+attuale, poi riavvia:
+
+```sh
+sudo cp -a /opt/obsidian-mcp /opt/obsidian-mcp.bak-$(date +%Y%m%d-%H%M%S)
+sudo rsync -a --delete dist/ /opt/obsidian-mcp/dist/
+sudo rsync -a schema/ /opt/obsidian-mcp/schema/
+sudo cp package.json package-lock.json /opt/obsidian-mcp/
+sudo rsync -a --delete node_modules/ /opt/obsidian-mcp/node_modules/
+sudo chown -R root:root /opt/obsidian-mcp
+sudo systemctl restart obsidian-mcp
+```
+
+Claude vede i tool nuovi solo dopo aver ricaricato il connettore.
 
 ### Aggiornamento a OAuth
 
@@ -183,7 +257,8 @@ sono validi 60 secondi e richiedono il verificatore PKCE per essere scambiati.
   costituiscono una transazione con rclone o altri editor: una modifica esterna
   tra il controllo e la scrittura puo ancora creare un conflitto. Evita modifiche
   simultanee alla stessa nota e conserva backup indipendenti.
-- Uno spostamento non aggiorna wikilink, backlink o riferimenti nei Canvas.
+- Rinominando una nota, `move_note` riscrive i wikilink nelle note Markdown, non i riferimenti
+  nei Canvas. Uno spostamento tra cartelle senza cambio di nome non richiede modifiche.
 - WebDAV non esegue Obsidian. Questo server non comanda plugin, palette comandi,
   nota attiva o interfaccia: occorre un'integrazione separata con l'app aperta.
 - Ogni copia recuperabile e un JSON con `path` e `content` nella cartella backup.
