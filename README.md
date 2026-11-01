@@ -284,3 +284,7 @@ sono validi 60 secondi e richiedono il verificatore PKCE per essere scambiati.
 - SDK ufficiale: https://ts.sdk.modelcontextprotocol.io/v2/
 - Trasporto HTTP: https://ts.sdk.modelcontextprotocol.io/v2/serving/http.html
 - Connettori Claude: https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp
+
+## Istantanea del vault
+
+`dist/snapshot.js` scrive `/var/lib/knowledge/notes.json`: per ogni nota percorso, titolo, cartella, campi dello schema, le chiavi Zotero a cui punta `reference` (`zotero://select` o `zotero://open-pdf`) e i link in uscita. Serve ai servizi che non devono leggere il vault, come le mappe del DOI MCP. `deploy/knowledge-snapshot-vault.service` e `.timer` lo eseguono ogni ora come `obsidian-dav`, in sola lettura sul vault e senza rete.

@@ -1,0 +1,17 @@
+[Unit]
+Description=Snapshot of the Obsidian vault for other services (/var/lib/knowledge/notes.json)
+
+[Service]
+Type=oneshot
+User=obsidian-dav
+SupplementaryGroups=knowledge
+EnvironmentFile=/etc/obsidian-mcp.env
+ExecStart=/usr/bin/node /opt/obsidian-mcp/dist/snapshot.js
+Nice=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadOnlyPaths=/srv/obsidian-webdav
+ReadWritePaths=/var/lib/knowledge
+PrivateTmp=yes
+PrivateNetwork=yes
+CapabilityBoundingSet=
