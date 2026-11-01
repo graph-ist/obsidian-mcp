@@ -166,8 +166,8 @@ Frontmatter, in this order:
 - subclasses: concepts, movements or periods from my vocabulary; prefer existing values (query_notes on subclasses).
 - related: 3-6 wikilinks to notes that exist and are argued in the body.
 - aliases: at least 3 lowercase keywords of 1-2 words, for the Virtual Linker.
-- reference: the APA reference from the Zotero MCP (format_citations), plain text.
-- tags: the item's cited/* and core/seminal tags.
+- reference: the APA reference from the Zotero MCP (format_citations) as a link to the item: "[APA text](zotero://select/library/items/KEY)". Plain APA text only for sources not in Zotero.
+- tags: the item's cited/* and core/seminal tags, copied from Zotero (Zotero is the source; to change them, change the item).
 
 Body: level-4 headings (####) in this order, subsections with #####. Leave out empty sections.
 - Reading Path: edition read and a checklist of chapters or sections.
