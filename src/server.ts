@@ -22,8 +22,12 @@ async function respond(operation: () => Promise<unknown>) {
 }
 
 // Notes inside the schema scope cannot be written with errors; warnings are returned with the result.
-function checked(schema: NoteSchema, path: string, content: string) {
-  const issues = validateNote(path, content, schema);
+async function noteTitles(vault: Vault): Promise<Set<string>> {
+  return new Set((await vault.notes('', 100000)).paths.map(note => baseName(note).toLowerCase()));
+}
+
+async function checked(vault: Vault, schema: NoteSchema, path: string, content: string) {
+  const issues = validateNote(path, content, schema, await noteTitles(vault));
   const scoped = inScope(path, schema);
   const errors = issues.filter(issue => issue.level === 'error');
   if (scoped && errors.length) {
@@ -64,7 +68,7 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     inputSchema: z.object({ path: notePath, content: z.string().max(1_000_000), expectedVersion: version.optional() }),
     annotations: writes
   }, async ({ path, content, expectedVersion }) => respond(async () => {
-    const issues = checked(schema, path, content);
+    const issues = await checked(vault, schema, path, content);
     return { ...(await vault.write(path, content, expectedVersion)), issues };
   }));
 
@@ -79,7 +83,7 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
     const content = patchFrontmatter(current.content, set, remove, schema.fields);
-    const issues = checked(schema, path, content);
+    const issues = await checked(vault, schema, path, content);
     return { ...(await vault.write(path, content, expectedVersion)), issues };
   }));
 
@@ -108,7 +112,8 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     inputSchema: z.object({ path: z.string().max(1000).describe('A note path (ending in .md) or a folder ("" for the whole vault).') }),
     annotations: readOnly
   }, async ({ path }) => respond(async () => {
-    const report = (note: string, content: string) => ({ path: note, inScope: inScope(note, schema), issues: validateNote(note, content, schema) });
+    const titles = await noteTitles(vault);
+    const report = (note: string, content: string) => ({ path: note, inScope: inScope(note, schema), issues: validateNote(note, content, schema, titles) });
     if (path.endsWith('.md')) return report(path, (await vault.read(path)).content);
     // Notes outside the schema scope (e.g. Da rivedere/) are counted, not checked.
     const scan = await readAll(path);
@@ -165,7 +170,7 @@ Frontmatter, in this order:
 - cssclasses: the Zotero item's sub/ tags without the prefix (ANZSRC codes, at most 3; ask me if there are more).
 - subclasses: concepts, movements or periods from my vocabulary; prefer existing values (query_notes on subclasses).
 - related: 3-6 wikilinks to notes that exist and are argued in the body.
-- aliases: at least 3 lowercase keywords of 1-2 words, for the Virtual Linker.
+- aliases: at least 3 lowercase keywords of 1-2 words, for the Virtual Linker. Never a person's name (surname alone or full name) unless the note is that person's note, and never surname + year (the citation is in reference); surname + topic is fine ("heidegger technology").
 - reference: the APA reference from the Zotero MCP (format_citations) as a link to the item: "[APA text](zotero://select/library/items/KEY)". Plain APA text only for sources not in Zotero.
 - tags: the item's cited/* and core/seminal tags, copied from Zotero (Zotero is the source; to change them, change the item).
 
@@ -197,7 +202,7 @@ Show me the note before writing it. Then save it with write_note in Zettelkasten
   }, async ({ path, destination, expectedVersion }) => respond(async () => {
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
-    const issues = inScope(destination, schema) && !inScope(path, schema) ? checked(schema, destination, current.content) : [];
+    const issues = inScope(destination, schema) && !inScope(path, schema) ? await checked(vault, schema, destination, current.content) : [];
     // Plan every link rewrite before touching anything, so a failure cannot leave the move half done.
     const oldName = baseName(path), newName = baseName(destination);
     const plan: { path: string; content: string; version: string }[] = [];
@@ -244,7 +249,7 @@ Show me the note before writing it. Then save it with write_note in Zettelkasten
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
     const content = appendText(current.content, text, heading);
-    const issues = checked(schema, path, content);
+    const issues = await checked(vault, schema, path, content);
     return { ...(await vault.write(path, content, expectedVersion)), issues };
   }));
 

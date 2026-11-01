@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Document, isMap, isScalar, isSeq, parse, parseDocument, type Node } from 'yaml';
-import { maskCode } from './markdown.js';
+import { maskCode, noteName } from './markdown.js';
 
 export interface NoteSchema {
   scope: { include: string[]; exclude: string[] };
@@ -39,7 +39,9 @@ export function inScope(path: string, schema: NoteSchema): boolean {
 const asList = (value: unknown): unknown[] | null =>
   value === null || value === undefined || value === '' ? [] : Array.isArray(value) ? value : null;
 
-export function validateNote(path: string, content: string, schema: NoteSchema): Issue[] {
+// `titles`: lowercase names of every note in the vault, to catch aliases that would steal another
+// note's links in Virtual Linker (a person's name on a reading note).
+export function validateNote(path: string, content: string, schema: NoteSchema, titles?: Set<string>): Issue[] {
   const issues: Issue[] = [];
   const error = (message: string, field?: string) => issues.push({ level: 'error', field, message });
   const warning = (message: string, field?: string) => issues.push({ level: 'warning', field, message });
@@ -98,6 +100,14 @@ export function validateNote(path: string, content: string, schema: NoteSchema):
     if (aliases.length < schema.aliases.min) warning(`aliases has ${aliases.length} entries, at least ${schema.aliases.min} recommended.`, 'aliases');
     const lower = aliases.map(alias => String(alias).toLowerCase());
     if (new Set(lower).size !== lower.length) warning('Duplicate aliases.', 'aliases');
+    const own = noteName(path).toLowerCase();
+    for (const alias of lower) {
+      if (/^\p{L}[\p{L}'-]* \d{4}[a-z]?$/u.test(alias)) {
+        warning(`Alias "${alias}" is surname + year: the citation is already in reference.`, 'aliases');
+      } else if (titles && alias !== own && titles.has(alias)) {
+        warning(`Alias "${alias}" is the name of another note: Virtual Linker would link its mentions here instead of to that note (a person's or concept's name belongs to its own note).`, 'aliases');
+      }
+    }
   }
 
   const reference = frontmatter.reference;

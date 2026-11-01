@@ -95,3 +95,13 @@ test('empty frontmatter, missing frontmatter and CRLF notes', () => {
   assert.equal(patchFrontmatter('body only\n', { related: ['[[X]]'], tags: [] }, [], schema.fields), '---\nrelated:\n  - "[[X]]"\ntags:\n---\nbody only\n');
   assert.equal(patchFrontmatter('---\r\naliases:\r\n  - x\r\n---\r\nbody\r\n', { tags: ['t'] }, ['aliases'], schema.fields), '---\r\ntags:\r\n  - t\r\n---\r\nbody\r\n');
 });
+
+test('aliases: surname + year and other notes\' names are flagged', () => {
+  const note = '---\ncssclasses:\n  - 330304-design-theory\naliases:\n  - simon 1962\n  - kant\n  - heidegger technology\n  - parole nel vuoto (loos)\nreference: x\n---\nbody\n';
+  const titles = new Set(['kant', 'parole nel vuoto (loos)']);
+  const messages = validateNote('Zettelkasten/Ideas/Parole nel vuoto (Loos).md', note, schema, titles).map(issue => issue.message).join('\n');
+  assert.match(messages, /"simon 1962" is surname \+ year/);
+  assert.match(messages, /"kant" is the name of another note/);
+  assert.doesNotMatch(messages, /heidegger technology/);
+  assert.doesNotMatch(messages, /"parole nel vuoto \(loos\)" is the name/);
+});
