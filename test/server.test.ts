@@ -32,7 +32,7 @@ test('HTTP authentication, host checks and real MCP tools', async () => {
     assert.equal((await fetch(endpoint, { headers: { ...headers, Origin: 'https://untrusted.example' } })).status, 403);
     await client.connect(transport);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 14);
+    assert.equal(listed.tools.length, 15);
     const created = await client.callTool({ name: 'write_note', arguments: { path: 'Hello.md', content: '# Hello MCP' } });
     assert.equal(created.isError, undefined);
     const rejected = await client.callTool({ name: 'write_note', arguments: { path: 'Zettelkasten/Bad.md', content: '# no frontmatter' } });

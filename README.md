@@ -44,6 +44,7 @@ statico e gia installato; il passaggio a OAuth richiede l'upgrade descritto sott
 | `unresolved_links` | Wikilink verso note che non esistono, i piu citati per primi |
 | `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note e riporta quali note ha aggiornato |
 | `delete_note` | Elimina dal vault dopo una copia recuperabile |
+| `refresh_notes_snapshot` | Rigenera `/var/lib/knowledge/notes.json` per le mappe del DOI MCP |
 
 Prompt: `save_to_obsidian` trasforma una discussione in chat o un item Zotero in una
 nota che segue il template (vedi sotto) e la mostra prima di salvarla.
@@ -287,4 +288,4 @@ sono validi 60 secondi e richiedono il verificatore PKCE per essere scambiati.
 
 ## Istantanea del vault
 
-`dist/snapshot.js` scrive `/var/lib/knowledge/notes.json`: per ogni nota percorso, titolo, cartella, campi dello schema, le chiavi Zotero a cui punta `reference` (`zotero://select` o `zotero://open-pdf`) e i link in uscita. Serve ai servizi che non devono leggere il vault, come le mappe del DOI MCP. `deploy/knowledge-snapshot-vault.service` e `.timer` lo eseguono ogni ora come `obsidian-dav`, in sola lettura sul vault e senza rete.
+`dist/snapshot.js` scrive `/var/lib/knowledge/notes.json`: per ogni nota percorso, titolo, cartella, campi dello schema, le chiavi Zotero a cui punta `reference` (`zotero://select` o `zotero://open-pdf`) e i link in uscita. Serve ai servizi che non devono leggere il vault, come le mappe del DOI MCP. Il tool `refresh_notes_snapshot` lo rigenera su richiesta (pulsante "Refresh library and notes" della pagina delle mappe); il servizio ha il gruppo `knowledge` e scrive solo in `/var/lib/knowledge`.

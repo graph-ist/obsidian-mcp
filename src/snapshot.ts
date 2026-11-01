@@ -2,7 +2,8 @@
 // must not read the vault themselves (DOI MCP literature maps, knowledge views). Read only on
 // the vault. Each note: path, title, folder, frontmatter fields of the schema, the Zotero item
 // keys its `reference` links to (zotero://select or zotero://open-pdf), and outgoing note links.
-// Usage: node dist/snapshot.js   Env: OBSIDIAN_VAULT_PATH, KNOWLEDGE_DIR (default /var/lib/knowledge)
+// Run by the MCP tool refresh_notes_snapshot (the "Refresh library and notes" button of the
+// Literature maps page) or by hand: node dist/snapshot.js. Env: OBSIDIAN_VAULT_PATH, KNOWLEDGE_DIR
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isAttachment, noteName, wikilinks } from './markdown.js';
@@ -47,15 +48,18 @@ export function buildSnapshot(root: string) {
   return { generated: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), vault: path.basename(root), notes };
 }
 
-if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
-  const root = process.env.OBSIDIAN_VAULT_PATH;
-  if (!root) throw new Error('Set OBSIDIAN_VAULT_PATH.');
-  const outDir = process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge';
+// Writes notes.json atomically, readable by group (the services in group `knowledge`).
+export function writeSnapshot(root: string, outDir = process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge') {
   mkdirSync(outDir, { recursive: true });
   const snap = buildSnapshot(root);
   const out = path.join(outDir, 'notes.json');
-  process.umask(0o027);
-  writeFileSync(`${out}.tmp`, JSON.stringify(snap));
+  writeFileSync(`${out}.tmp`, JSON.stringify(snap), { mode: 0o640 });
   renameSync(`${out}.tmp`, out);
-  console.log(`${snap.notes.length} notes, ${snap.notes.filter(n => n.zotero_keys.length).length} linked to Zotero`);
+  return { status: 'written', notes: snap.notes.length, linked_to_zotero: snap.notes.filter(n => n.zotero_keys.length).length, generated: snap.generated };
+}
+
+if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
+  const root = process.env.OBSIDIAN_VAULT_PATH;
+  if (!root) throw new Error('Set OBSIDIAN_VAULT_PATH.');
+  console.log(writeSnapshot(root));
 }

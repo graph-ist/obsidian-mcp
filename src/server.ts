@@ -10,6 +10,7 @@ import { noteName as baseName } from './markdown.js';
 import { backlinks, buildGraph, similarNotes, suggestLinks, unresolvedLinks } from './graph.js';
 import { inScope, loadSchema, patchFrontmatter, validateNote, type NoteSchema } from './notes.js';
 import { createOAuth, type OAuthOptions } from './oauth.js';
+import { writeSnapshot } from './snapshot.js';
 
 async function respond(operation: () => Promise<unknown>) {
   try {
@@ -151,6 +152,12 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     inputSchema: z.object({ limit: z.number().int().min(1).max(500).default(50), minLinks: z.number().int().min(1).default(1) }),
     annotations: readOnly
   }, async ({ limit, minLinks }) => respond(() => withGraph(graph => unresolvedLinks(graph, limit, minLinks))));
+
+  server.registerTool('refresh_notes_snapshot', {
+    description: 'Rewrite the vault snapshot (/var/lib/knowledge/notes.json) that the DOI MCP literature maps read to show which notes cite a work. Reads the vault, writes only that file.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+  }, async () => respond(async () => writeSnapshot(vault.root)));
 
   server.registerPrompt('save_to_obsidian', {
     title: 'Save to Obsidian',

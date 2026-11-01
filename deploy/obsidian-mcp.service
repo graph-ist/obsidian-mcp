@@ -3,6 +3,8 @@ Description=Obsidian vault MCP
 After=network.target
 
 [Service]
+SupplementaryGroups=knowledge
+Environment=KNOWLEDGE_DIR=/var/lib/knowledge
 Type=simple
 User=obsidian-dav
 Group=obsidian-dav
@@ -22,7 +24,7 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-ReadWritePaths=/srv/obsidian-webdav /var/lib/obsidian-mcp
+ReadWritePaths=/srv/obsidian-webdav /var/lib/obsidian-mcp /var/lib/knowledge
 
 [Install]
 WantedBy=multi-user.target
