@@ -55,7 +55,7 @@ test('moving a note into the schema scope validates it; folders differing only i
 
 test('vault-wide tools skip unreadable notes and say so', async () => {
   const { call } = await setup({ 'A.md': '---\ntags:\n  - x\n---\n[[B]]', 'B.md': '[[A]]', 'Big.md': Buffer.from([0xc3]) });
-  for (const [name, args] of [['query_notes', { field: 'tags' }], ['similar_notes', { note: 'A' }], ['backlinks', { note: 'A' }], ['unresolved_links', {}], ['validate_note', { path: '' }]] as const) {
+  for (const [name, args] of [['query_notes', { field: 'tags' }], ['similar_notes', { note: 'A' }], ['backlinks', { note: 'A' }], ['unresolved_links', {}], ['validate_note', { folder: '' }]] as const) {
     const { error, data } = await call(name, args);
     assert.equal(error, false, name);
     assert.deepEqual(data.skipped, [{ path: 'Big.md', reason: 'Note is not valid UTF-8 text: Big.md' }], name);
@@ -66,4 +66,13 @@ test('the note list reports truncation', async () => {
   const { vault } = await setup({ 'a.md': '', 'b.md': '', 'c.md': '' });
   assert.deepEqual(await vault.notes('', 2), { paths: ['a.md', 'b.md'], truncated: true });
   assert.deepEqual(await vault.notes('', 3), { paths: ['a.md', 'b.md', 'c.md'], truncated: false });
+});
+
+test('errors tell the model how to correct the call', async () => {
+  const { call } = await setup({ 'A.md': '---\ntags:\n  - x\n---\n' });
+  assert.match((await call('read_note', { path: 'Missing.md' })).data, /not found: Missing\.md\. Use list_notes/);
+  assert.match((await call('query_notes', { field: 'tags', value: 'x', prefix: 'x' })).data, /not both/);
+  assert.match((await call('validate_note', {})).data, /exactly one of note, folder/);
+  const long = await call('read_note', { path: 'A.md', maxChars: 5 });
+  assert.deepEqual([long.data.content, long.data.truncated, long.data.totalChars], ['---\nt', true, 19]);
 });

@@ -36,7 +36,7 @@ statico e gia installato; il passaggio a OAuth richiede l'upgrade descritto sott
 | `write_note` | Crea oppure aggiorna con versione attesa; controlla lo schema prima di scrivere |
 | `patch_frontmatter` | Cambia o toglie campi del frontmatter senza toccare il corpo |
 | `append_note` | Aggiunge testo in fondo alla nota o in fondo a una sezione |
-| `validate_note` | Controlla una nota o una cartella rispetto allo schema |
+| `validate_note` | Controlla una nota (`note`) o una cartella (`folder`) rispetto allo schema |
 | `query_notes` | Cerca per campo del frontmatter: valore esatto o prefisso (es. `cssclasses` con prefisso `50`) |
 | `backlinks` | Note che linkano una nota, con la riga del link |
 | `similar_notes` | Note con vicinato simile nel grafo dei link (Jaccard), con i vicini condivisi |

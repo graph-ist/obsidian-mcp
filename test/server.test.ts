@@ -44,7 +44,7 @@ test('HTTP authentication, host checks and real MCP tools', async () => {
     const renamed = await client.callTool({ name: 'move_note', arguments: { path: 'Old name.md', destination: 'Folder/New name.md', expectedVersion: oldNote.version } });
     assert.deepEqual(JSON.parse(renamed.content[0].text).linksUpdatedIn, ['Linker.md']);
     assert.equal(await fs.readFile(path.join(root, 'Linker.md'), 'utf8'), 'See [[New name]] and [[New name|alias]].');
-    const validated = await client.callTool({ name: 'validate_note', arguments: { path: '' } });
+    const validated = await client.callTool({ name: 'validate_note', arguments: { folder: '' } });
     assert.equal(validated.isError, undefined);
     const read = await client.callTool({ name: 'read_note', arguments: { path: 'Hello.md' } });
     const text = read.content[0];
