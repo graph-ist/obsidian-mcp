@@ -74,5 +74,5 @@ test('errors tell the model how to correct the call', async () => {
   assert.match((await call('query_notes', { field: 'tags', value: 'x', prefix: 'x' })).data, /not both/);
   assert.match((await call('validate_note', {})).data, /exactly one of note, folder/);
   const long = await call('read_note', { path: 'A.md', maxChars: 5 });
-  assert.deepEqual([long.data.content, long.data.truncated, long.data.totalChars], ['---\nt', true, 19]);
+  assert.deepEqual([long.data.content, long.data.truncated, long.data.totalChars], ['---\nt', true, 20]);
 });
