@@ -79,7 +79,8 @@ test('errors tell the model how to correct the call', async () => {
   assert.match((await call('query_notes', { field: 'tags', value: 'x', prefix: 'x' })).data, /not both/);
   assert.match((await call('validate_note', {})).data, /exactly one of note, folder/);
   const long = await call('read_note', { path: 'A.md', maxChars: 5 });
-  assert.deepEqual([long.data.content, long.data.truncated, long.data.totalChars], ['---\nt', true, 20]);
+  assert.deepEqual([long.data.content, long.data.truncated, long.data.totalChars, long.data.version], ['---\nt', true, 20, undefined]);
+  assert.equal(typeof (await call('read_note', { path: 'A.md', maxChars: 20 })).data.version, 'string');
 });
 
 test('move_note reports the notes whose links it could not rewrite and still moves the note', { skip: process.getuid?.() === 0 && 'file permissions do not bind root' }, async () => {

@@ -10,7 +10,8 @@ PKCE S256, consenso esplicito, access token di un'ora e rinnovo automatico.
 esiste perché i connettori di Claude web non inviano header personalizzati.
 La modalità a token statico resta disponibile per i client che li inviano.
 
-Le procedure per una macchina specifica (installazione, aggiornamento, passaggio a
+Le modifiche per versione sono in [CHANGELOG.md](CHANGELOG.md), le proposte di sviluppo in
+[ROADMAP.md](ROADMAP.md). Le procedure per una macchina specifica (installazione, aggiornamento, passaggio a
 OAuth, collegamento a Claude, rollback) sono in [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
 
 ## Architettura
@@ -32,7 +33,7 @@ leggibili, senza cifratura end-to-end di Remotely Save.
 | Strumento | Operazione |
 | --- | --- |
 | `list_notes` | Note e cartelle dentro una cartella, con paginazione |
-| `read_note` | Contenuto (fino a `maxChars`) e versione SHA-256 |
+| `read_note` | Contenuto (fino a `maxChars`) e versione SHA-256; una lettura troncata non ha versione |
 | `search_notes` | Ricerca letterale in percorsi e contenuti |
 | `write_note` | Crea oppure aggiorna con versione attesa; controlla lo schema prima di scrivere |
 | `patch_frontmatter` | Cambia o toglie campi del frontmatter senza toccare il corpo |
