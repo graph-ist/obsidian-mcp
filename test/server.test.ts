@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { createApp } from '../src/server.js';
+import { createApp, createServer } from '../src/server.js';
 import { Vault } from '../src/vault.js';
 
 test('HTTP authentication, host checks and real MCP tools', async () => {
@@ -58,4 +58,16 @@ test('HTTP authentication, host checks and real MCP tools', async () => {
     await new Promise<void>((resolve, reject) => listener.close(error => error ? reject(error) : resolve()));
     await fs.rm(temporary, { recursive: true, force: true });
   }
+});
+test('the save_to_obsidian prompt comes from prompts/ and takes its source argument', async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidian-prompt-'));
+  const vault = new Vault(path.join(temporary, 'vault'), path.join(temporary, 'backups'));
+  await fs.mkdir(vault.root);
+  const prompts = (createServer(vault) as unknown as { _registeredPrompts: Record<string, { handler: Function }> })._registeredPrompts;
+  const result = await prompts.save_to_obsidian.handler({ source: 'Being and Time' }, {});
+  const text = result.messages[0].content.text as string;
+  assert.match(text, /^Write or update the Obsidian note for: Being and Time/);
+  assert.match(text, /report any validator warnings\.$/);
+  assert.ok(!text.includes('{{source}}'));
+  await fs.rm(temporary, { recursive: true, force: true });
 });

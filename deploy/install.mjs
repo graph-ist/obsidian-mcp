@@ -22,7 +22,7 @@ const vault = existing.OBSIDIAN_VAULT_PATH ?? '/srv/obsidian-webdav/Knowledge Gr
 const hostname = existing.PUBLIC_HOSTNAME ?? 'rpi-aegis.tailaceb71.ts.net';
 const origin = new URL(`https://${hostname}`).origin;
 
-for (const required of ['dist/index.js', 'schema/note-schema.json', 'node_modules', 'package.json', 'package-lock.json']) {
+for (const required of ['dist/index.js', 'schema/note-schema.json', 'prompts/save_to_obsidian.md', 'node_modules', 'package.json', 'package-lock.json']) {
   if (!fs.existsSync(path.join(source, required))) throw new Error('Build and test the project on the Pi before installation.');
 }
 execFileSync('id', ['obsidian-dav'], { stdio: 'ignore' });
@@ -62,7 +62,7 @@ try {
 
 const release = `${destination}.next-${randomBytes(8).toString('hex')}`;
 fs.mkdirSync(release, { mode: 0o755 });
-for (const filename of ['dist', 'schema', 'node_modules', 'package.json', 'package-lock.json']) {
+for (const filename of ['dist', 'schema', 'prompts', 'node_modules', 'package.json', 'package-lock.json']) {
   fs.cpSync(path.join(source, filename), path.join(release, filename), { recursive: true });
 }
 execFileSync('chown', ['-R', 'root:root', release]);
