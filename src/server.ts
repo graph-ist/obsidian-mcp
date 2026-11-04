@@ -16,8 +16,9 @@ const respondIn = (root: string) => async (operation: () => Promise<unknown>) =>
   try {
     return { content: [{ type: 'text' as const, text: JSON.stringify(await operation()) }] };
   } catch (error) {
-    const { code, path: file } = error as NodeJS.ErrnoException;
-    const where = file ? `: ${path.relative(root, file)}` : '';
+    const { code, path: file, dest } = error as NodeJS.ErrnoException & { dest?: string };
+    const named = code === 'EEXIST' ? dest ?? file : file;
+    const where = named ? `: ${path.relative(root, named)}` : '';
     const message = code === 'ENOENT' ? `Note or folder not found${where}. Use list_notes or search_notes to find the right path.`
       : code === 'EEXIST' ? `Destination already exists${where}. Choose another path.`
       : code === 'ENOTDIR' || code === 'EISDIR' ? `Path is not a ${code === 'EISDIR' ? 'note' : 'folder'}${where}.`

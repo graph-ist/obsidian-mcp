@@ -76,3 +76,46 @@ test('errors tell the model how to correct the call', async () => {
   const long = await call('read_note', { path: 'A.md', maxChars: 5 });
   assert.deepEqual([long.data.content, long.data.truncated, long.data.totalChars], ['---\nt', true, 20]);
 });
+
+test('move_note reports the notes whose links it could not rewrite and still moves the note', { skip: process.getuid?.() === 0 && 'file permissions do not bind root' }, async () => {
+  const { root, vault, call, read } = await setup({ 'Old.md': 'x', 'Ok.md': '[[Old]]', 'Locked/Ref.md': '[[Old]]' });
+  await fs.chmod(path.join(root, 'Locked'), 0o555);
+  try {
+    const { version } = await vault.read('Old.md');
+    const { error, data } = await call('move_note', { path: 'Old.md', destination: 'New.md', expectedVersion: version });
+    assert.equal(error, false);
+    assert.deepEqual(data.linksUpdatedIn, ['Ok.md']);
+    assert.equal(data.linksNotUpdated.length, 1);
+    assert.equal(data.linksNotUpdated[0].path, 'Locked/Ref.md');
+    assert.equal(await read('New.md'), 'x');
+    assert.equal(await read('Locked/Ref.md'), '[[Old]]');
+  } finally {
+    await fs.chmod(path.join(root, 'Locked'), 0o755);
+  }
+});
+
+test('concurrent updates with the same version: exactly one wins', async () => {
+  const { vault, call, read } = await setup({ 'N.md': 'start' });
+  const { version } = await vault.read('N.md');
+  const results = await Promise.all(['one', 'two', 'three'].map(content => call('write_note', { path: 'N.md', content, expectedVersion: version })));
+  const winners = results.filter(result => !result.error);
+  assert.equal(winners.length, 1);
+  for (const lost of results.filter(result => result.error)) assert.match(lost.data, /Version conflict/);
+  assert.equal(await read('N.md'), winners[0].data.content);
+});
+
+test('move_note refuses an existing destination and write_note an existing note without a version', async () => {
+  const { vault, call } = await setup({ 'A.md': 'a', 'B.md': 'b' });
+  const { version } = await vault.read('A.md');
+  assert.match((await call('move_note', { path: 'A.md', destination: 'B.md', expectedVersion: version })).data, /already exists: B\.md/);
+  assert.match((await call('write_note', { path: 'B.md', content: 'new' })).data, /already exists: B\.md/);
+});
+
+test('search reports truncation only when the limit stops the scan', async () => {
+  const { call } = await setup({ 'a.md': 'needle one', 'b/b.md': 'needle two', 'c.md': 'needle three', 'd.md': 'hay' });
+  const cut = await call('search_notes', { query: 'needle', limit: 2 });
+  assert.deepEqual([cut.data.matches.length, cut.data.truncated], [2, true]);
+  const all = await call('search_notes', { query: 'NEEDLE', limit: 10 });
+  assert.deepEqual([all.data.matches.length, all.data.truncated, all.data.scanned], [3, false, 4]);
+  assert.deepEqual((await call('search_notes', { query: 'b/b', limit: 10 })).data.matches.map((m: { path: string }) => m.path), ['b/b.md']);
+});
