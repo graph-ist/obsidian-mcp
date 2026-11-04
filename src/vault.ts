@@ -12,6 +12,8 @@ const pathHash = (name: string) => createHash('sha256').update(name).digest('hex
 export class Vault {
   private pending: Promise<unknown> = Promise.resolve();
   readonly retention: Retention;
+  // Called after every successful write, move or delete (the server refreshes the snapshot).
+  onChange?: (path: string) => void;
 
   constructor(readonly root: string, readonly backups: string, retention: Partial<Retention> = {}) {
     this.retention = { keepPerNote: retention.keepPerNote ?? 20, maxAgeDays: retention.maxAgeDays ?? 90 };
@@ -172,7 +174,9 @@ export class Vault {
           await fs.rm(temporary, { force: true });
         }
       }
-      return { ...(await this.read(name)), backupId };
+      const result = { ...(await this.read(name)), backupId };
+      this.onChange?.(name);
+      return result;
     });
   }
 
@@ -187,6 +191,7 @@ export class Vault {
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.link(source, target);
       await fs.unlink(source);
+      this.onChange?.(destination);
       return { path: destination, version: previous.version, backupId, warning: 'Wikilinks are not rewritten.' };
     });
   }
@@ -197,6 +202,7 @@ export class Vault {
       if (previous.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
       const backupId = await this.snapshot(name, previous.content);
       await fs.unlink(await this.resolve(name));
+      this.onChange?.(name);
       return { deleted: name, backupId };
     });
   }

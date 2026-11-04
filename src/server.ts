@@ -52,8 +52,37 @@ export function loadPrompts(directory = new URL('../prompts/', import.meta.url))
   return { save_to_obsidian: read('save_to_obsidian') };
 }
 
-export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), catalog = new Catalog(vault), prompts = loadPrompts()) {
-  const server = new McpServer({ name: 'obsidian-vault', version: '0.3.0' });
+export interface ServerOptions {
+  // Milliseconds between the last write and the automatic snapshot refresh; false disables it.
+  // Default: 3000, or disabled when KNOWLEDGE_AUTO_REFRESH=false.
+  autoRefreshMs?: number | false;
+}
+
+// After writes, notes.json is rewritten once the burst is over, so the DOI MCP's maps see the
+// vault as it is without a manual refresh_notes_snapshot. Failures are logged, never returned.
+export function autoRefresh(vault: Vault, catalog: Catalog, delayMs: number) {
+  let timer: NodeJS.Timeout | undefined;
+  let running: Promise<unknown> = Promise.resolve();
+  const refresh = () => {
+    running = running.then(() => writeSnapshot(vault, catalog)).catch(error => {
+      console.error(`notes snapshot refresh failed: ${(error as Error).message}`);
+    });
+    return running;
+  };
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = undefined; void refresh(); }, delayMs);
+    timer.unref();
+  };
+  // flush: for tests and shutdown, run a pending refresh now and wait for it
+  const flush = async () => { if (timer) { clearTimeout(timer); timer = undefined; await refresh(); } await running; };
+  return { schedule, flush };
+}
+
+export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), catalog = new Catalog(vault), prompts = loadPrompts(), options: ServerOptions = {}) {
+  const server = new McpServer({ name: 'obsidian-vault', version: '0.3.2' });
+  const delay = options.autoRefreshMs ?? (process.env.KNOWLEDGE_AUTO_REFRESH === 'false' ? false : 3000);
+  if (delay !== false) vault.onChange = autoRefresh(vault, catalog, delay).schedule;
   const respond = respondIn(vault.root);
   const notePath = z.string().min(1).max(1000).describe('Relative Markdown path, for example Notes/idea.md.');
   const version = z.string().regex(/^[a-f0-9]{64}$/).describe('Exact version returned by read_note. Read again on conflict.');

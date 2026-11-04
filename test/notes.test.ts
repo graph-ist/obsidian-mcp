@@ -35,7 +35,7 @@ test('errors and warnings are reported per field', () => {
     .replace('tags:', 'status: draft\ntags:');
   const issues = validateNote('Zettelkasten/Phenomenology.md', bad, schema);
   const messages = issues.map(issue => `${issue.level}: ${issue.message}`);
-  assert.ok(messages.some(message => message.startsWith('warning: ANZSRC code not in the schema list: 999999-unknown.')));
+  assert.ok(messages.some(message => message.startsWith('warning: ANZSRC code neither in the schema list nor among the sub/ tags of the Zotero library: 999999-unknown.')));
   assert.ok(messages.includes('error: related entry is not a wikilink: Heidegger.'));
   assert.ok(messages.includes('warning: related links to the note itself: Phenomenology.'));
   assert.ok(messages.includes('warning: Duplicate in related: Husserl.'));

@@ -46,7 +46,7 @@ leggibili, senza cifratura end-to-end di Remotely Save.
 | `unresolved_links` | Wikilink verso note che non esistono, i più citati per primi |
 | `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note e riporta quali note ha aggiornato |
 | `delete_note` | Elimina dal vault dopo una copia recuperabile |
-| `refresh_notes_snapshot` | Rigenera `notes.json` in `KNOWLEDGE_DIR` per le mappe del DOI MCP |
+| `refresh_notes_snapshot` | Rigenera `notes.json` in `KNOWLEDGE_DIR` per le mappe del DOI MCP (dopo ogni scrittura succede da sé pochi secondi dopo; `KNOWLEDGE_AUTO_REFRESH=false` lo disattiva) |
 
 Ogni tool dichiara un `outputSchema` e restituisce `structuredContent` oltre al
 testo JSON. I percorsi nei risultati del grafo (`shared`, `via`, `from`) sono
@@ -91,8 +91,10 @@ collegare una singola nota conviene leggere e cercare nel testo.
   Le note fuori scope si scrivono senza controlli.
 - `fields`: l'ordine dei campi, `cssclasses`, `subclasses`, `related`, `aliases`, `reference`, `tags`.
 - `cssclasses.values`: i codici ANZSRC FoR 2020 a 6 cifre, con lo stesso slug dei tag `sub/` di
-  Zotero (es. `500310-phenomenology`), al massimo 3 per nota. La lista viene dai tag Zotero: un
-  codice ben formato che non è nella lista dà solo un avviso; aggiungilo qui quando lo usi.
+  Zotero (es. `500310-phenomenology`), al massimo 3 per nota. Ai valori elencati qui si aggiungono
+  i tag `sub/` letti da `library.json` in `KNOWLEDGE_DIR` (l'istantanea dell'MCP Zotero): un codice
+  usato in Zotero vale senza copiarlo, e la lista nello schema resta come riserva. Un codice ben
+  formato che non è in nessuna delle due dà solo un avviso.
 - `subclasses.known`: il vocabolario proprio (concetti, correnti, periodi); un valore nuovo dà solo un avviso.
 - `aliases.min`: numero minimo consigliato di alias (avviso).
 - `template.headings`: i titoli `####` ammessi; `template.exclude` le cartelle d'archivio con la

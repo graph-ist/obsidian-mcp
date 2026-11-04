@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- I codici ANZSRC ammessi in `cssclasses` sono quelli dello schema più i tag `sub/` di `library.json` in `KNOWLEDGE_DIR` (`src/vocabulary.ts`, cache per mtime): un codice usato in Zotero non va più copiato a mano nello schema. L'avviso dice di taggare l'item in Zotero oppure di aggiungere il codice allo schema.
+- Dopo ogni scrittura, spostamento o cancellazione riuscita il server rigenera `notes.json` pochi secondi dopo (`Vault.onChange`, `autoRefresh` in `src/server.ts`); gli errori finiscono nel log e mai nella risposta. `KNOWLEDGE_AUTO_REFRESH=false` lo disattiva; `createServer` accetta `autoRefreshMs`.
+
 ## 0.3.1
 
 - `notes.json` porta `schema_version: 1`; il DOI MCP rifiuta una versione maggiore di quella che legge invece di interpretarla male. Si incrementa solo se un campo cambia significato o sparisce.

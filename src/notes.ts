@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { Document, isMap, isScalar, isSeq, parse, parseDocument, type Node } from 'yaml';
 import { maskCode, noteName } from './markdown.js';
+import { libraryCodes } from './vocabulary.js';
 
 export interface NoteSchema {
   scope: { include: string[]; exclude: string[] };
@@ -64,11 +65,12 @@ export function validateNote(path: string, content: string, schema: NoteSchema, 
   else {
     if (!css.length) error('cssclasses is empty: add 1 to 3 ANZSRC codes (e.g. 500310-phenomenology).', 'cssclasses');
     if (css.length > schema.cssclasses.max) error(`cssclasses has ${css.length} codes, at most ${schema.cssclasses.max}.`, 'cssclasses');
-    const known = new Set(schema.cssclasses.values);
+    // the vocabulary is the schema list plus every sub/ tag of the Zotero library snapshot
+    const known = new Set([...schema.cssclasses.values, ...libraryCodes()]);
     for (const code of css) {
       if (known.has(String(code))) continue;
-      // A well-formed code missing from the list may simply be new in Zotero: warn, do not block.
-      if (/^\d{6}-[a-z0-9-]+$/.test(String(code))) warning(`ANZSRC code not in the schema list: ${code}. If it is a valid code used in Zotero, add it to schema/note-schema.json.`, 'cssclasses');
+      // A well-formed code missing from both may simply be new: warn, do not block.
+      if (/^\d{6}-[a-z0-9-]+$/.test(String(code))) warning(`ANZSRC code neither in the schema list nor among the sub/ tags of the Zotero library: ${code}. Tag the Zotero item with sub/${code} (then refresh_library_snapshot) or add it to schema/note-schema.json.`, 'cssclasses');
       else error(`Not an ANZSRC code in the form 500310-phenomenology: ${code}.`, 'cssclasses');
     }
   }
