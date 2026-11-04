@@ -7,8 +7,10 @@ Per Claude web e app è disponibile OAuth con accesso tramite password: non serv
 configurare Request headers. Il protocollo è gestito da `oidc-provider`, con
 PKCE S256, consenso esplicito, access token di un'ora e rinnovo automatico.
 È la dipendenza più grande del progetto e l'unica superficie esposta a Internet:
-esiste perché i connettori di Claude web non inviano header personalizzati.
-La modalità a token statico resta disponibile per i client che li inviano.
+esiste perché i connettori di Claude web non inviavano header personalizzati.
+La modalità a token statico resta disponibile: il token viaggia solo nell'header
+`Authorization: Bearer` (in Claude web, in *Request headers* del connettore); un token
+nell'URL viene rifiutato.
 
 Le modifiche per versione sono in [CHANGELOG.md](CHANGELOG.md), le proposte di sviluppo in
 [ROADMAP.md](ROADMAP.md). Le procedure per una macchina specifica (installazione, aggiornamento, passaggio a
@@ -46,7 +48,8 @@ leggibili, senza cifratura end-to-end di Remotely Save.
 | `unresolved_links` | Wikilink verso note che non esistono, i più citati per primi |
 | `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note e riporta quali note ha aggiornato |
 | `delete_note` | Elimina dal vault dopo una copia recuperabile |
-| `refresh_notes_snapshot` | Rigenera `notes.json` in `KNOWLEDGE_DIR` per le mappe del DOI MCP (dopo ogni scrittura succede da sé pochi secondi dopo; `KNOWLEDGE_AUTO_REFRESH=false` lo disattiva) |
+| `refresh_notes_snapshot` | Rigenera `notes.json` e `notes_text.json` in `KNOWLEDGE_DIR` per le mappe e la ricerca del DOI MCP (dopo ogni scrittura succede da sé pochi secondi dopo; `KNOWLEDGE_AUTO_REFRESH=false` lo disattiva); importa anche i report nuovi |
+| `import_reports` | Copia una volta sola in `Inbox/` (o `OBSIDIAN_INBOX_FOLDER`) i report Markdown che altri servizi lasciano in `KNOWLEDGE_DIR/reports` (il lavoro settimanale del DOI MCP); avviene da sé ogni ora |
 
 Ogni tool dichiara un `outputSchema` e restituisce `structuredContent` oltre al
 testo JSON. I percorsi nei risultati del grafo (`shared`, `via`, `from`) sono
@@ -55,7 +58,10 @@ percorsi completi, perché con nomi duplicati solo il percorso identifica la not
 Prompt: `save_to_obsidian` trasforma una discussione in chat o un item Zotero in una
 nota che segue il template (vedi sotto) e la mostra prima di salvarla. Il testo è in
 `prompts/save_to_obsidian.md`, con `{{source}}` al posto dell'argomento: si può
-cambiare senza ricompilare, riavviando il servizio.
+cambiare senza ricompilare, riavviando il servizio. `map_argument` (`prompts/argue.md`)
+costruisce o aggiorna una nota di tesi (`kind: thesis`), cioè un hub tra fonti con Position,
+Supporters, Objections e Replies, una riga per fonte con pagina, a partire dalle note di
+lettura e dai testi in Zotero.
 
 ### Limiti
 
@@ -89,7 +95,9 @@ collegare una singola nota conviene leggere e cercare nel testo.
 
 - `scope`: le cartelle soggette allo schema (`Zettelkasten/`, tranne `Zettelkasten/Da rivedere/`).
   Le note fuori scope si scrivono senza controlli.
-- `fields`: l'ordine dei campi, `cssclasses`, `subclasses`, `related`, `aliases`, `reference`, `tags`.
+- `fields`: l'ordine dei campi, `kind` (facoltativo: `reading`, `person`, `concept`, `thesis`, `map`),
+  `cssclasses`, `subclasses`, `related`, `aliases`, `reference`, `tags`. Una nota con `kind: thesis`
+  deve avere la sezione Position e almeno una tra Supporters e Objections (avviso).
 - `cssclasses.values`: i codici ANZSRC FoR 2020 a 6 cifre, con lo stesso slug dei tag `sub/` di
   Zotero (es. `500310-phenomenology`), al massimo 3 per nota. Ai valori elencati qui si aggiungono
   i tag `sub/` letti da `library.json` in `KNOWLEDGE_DIR` (l'istantanea dell'MCP Zotero): un codice
@@ -166,6 +174,8 @@ npm start
 Non inviare il token in chat e non inserirlo in URL o file versionati.
 L'endpoint locale è `http://127.0.0.1:3004/mcp`.
 `GET /health` verifica soltanto che il processo risponda, non la sincronizzazione.
+`GET /status`, solo da loopback e senza credenziali, riporta versione, note nell'indice,
+note saltate, modalità di autenticazione e data dell'ultima istantanea.
 
 Per stdio: `npm run start:stdio`. La configurazione `.vscode/mcp.json` chiede i
 percorsi di un vault locale e dei backup; dopo la build puoi avviare e fare debug

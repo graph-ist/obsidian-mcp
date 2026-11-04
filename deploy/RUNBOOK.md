@@ -130,17 +130,13 @@ sudo -u obsidian-dav env OBSIDIAN_VAULT_PATH="/srv/obsidian-webdav/Knowledge Gra
 Scegli l'id, estrai il contenuto con `show <id>` nel percorso verificato, poi
 riavvia il servizio e lascia sincronizzare.
 
-## Collegamento a Claude con token nell'URL (vault di prova)
+## Collegamento a Claude con token statico (vault di prova)
 
-Con il servizio a token statico, Claude web può usare un URL con `?token=`:
-
-```text
-https://your-host.your-tailnet.ts.net/obsidian-mcp?token=<MCP_TOKEN>
-```
-
-Leggi il token sul Pi con `sudo grep MCP_TOKEN /etc/obsidian-mcp.env`. Chi ha
-l'URL ha accesso completo al vault: non condividerlo e usalo solo con vault di prova.
-Il server non registra gli URL. Per i vault personali usa OAuth.
+Con il servizio a token statico, il connettore di Claude web invia il token da
+*Request headers*: `Authorization: Bearer <MCP_TOKEN>`. Un token nell'URL (`?token=`)
+viene rifiutato dalla 0.4.0. Leggi il token sul Pi con `sudo grep MCP_TOKEN /etc/obsidian-mcp.env`.
+Chi ha il token ha accesso completo al vault: usalo solo con vault di prova; per i vault
+personali usa OAuth.
 
 ## Collegamento a Claude con OAuth
 

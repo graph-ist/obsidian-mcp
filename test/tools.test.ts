@@ -156,3 +156,29 @@ test('every tool returns structured content that matches its output schema', asy
   assert.deepEqual((await call('delete_note', { path: 'C.md', expectedVersion: appended.data.version })).data.deleted, 'C.md');
   assert.deepEqual((await call('unresolved_links', { limit: 5, minLinks: 1 })).data.links.map((l: { target: string }) => l.target), ['C', 'Nowhere']);
 });
+
+test('import_reports copies each report once into the inbox and the snapshot writes notes_text.json', async () => {
+  const { root, call, read } = await setup({ 'A.md': '---\nkind: thesis\n---\n#### Position\nP\n#### Supporters\n- [[B]] (p. 3): x\n', 'B.md': '# B' });
+  const knowledge = path.join(root, '..', 'knowledge');
+  await fs.mkdir(path.join(knowledge, 'reports'), { recursive: true });
+  await fs.writeFile(path.join(knowledge, 'reports', 'weekly-2026-11-03.md'), '# Weekly\nnothing new');
+  const previous = process.env.KNOWLEDGE_DIR;
+  process.env.KNOWLEDGE_DIR = knowledge;
+  try {
+    const first = await call('import_reports', {});
+    assert.deepEqual(first.data.imported, ['Inbox/weekly-2026-11-03.md']);
+    assert.equal(await read('Inbox/weekly-2026-11-03.md'), '# Weekly\nnothing new');
+    const second = await call('import_reports', {});
+    assert.deepEqual([second.data.imported, second.data.skipped], [[], 1]);
+    const snap = await call('refresh_notes_snapshot', {});
+    assert.equal(snap.data.reports_imported, 0);
+    const text = JSON.parse(await fs.readFile(path.join(knowledge, 'notes_text.json'), 'utf8'));
+    const a = text.notes.find((n: { path: string }) => n.path === 'A.md');
+    assert.equal(text.schema_version, 1);
+    assert.ok(a.text.startsWith('#### Position') && !a.text.includes('kind: thesis'));
+    const notes = JSON.parse(await fs.readFile(path.join(knowledge, 'notes.json'), 'utf8'));
+    assert.equal(notes.notes.find((n: { path: string }) => n.path === 'A.md').kind, 'thesis');
+  } finally {
+    if (previous === undefined) delete process.env.KNOWLEDGE_DIR; else process.env.KNOWLEDGE_DIR = previous;
+  }
+});

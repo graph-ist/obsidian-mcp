@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
@@ -13,6 +14,7 @@ import { backlinks, buildGraph, similarNotes, suggestLinks, unresolvedLinks } fr
 import { inScope, loadSchema, patchFrontmatter, validateNote, type NoteSchema } from './notes.js';
 import { createOAuth, type OAuthOptions } from './oauth.js';
 import { writeSnapshot } from './snapshot.js';
+import { importReports } from './reports.js';
 
 const respondIn = (root: string) => async (operation: () => Promise<object>) => {
   try {
@@ -49,7 +51,7 @@ async function checked(catalog: Catalog, schema: NoteSchema, path: string, conte
 // release; {{source}} is replaced with the argument.
 export function loadPrompts(directory = new URL('../prompts/', import.meta.url)) {
   const read = (name: string) => readFileSync(new URL(`${name}.md`, directory), 'utf8').trim();
-  return { save_to_obsidian: read('save_to_obsidian') };
+  return { save_to_obsidian: read('save_to_obsidian'), argue: read('argue') };
 }
 
 export interface ServerOptions {
@@ -80,7 +82,7 @@ export function autoRefresh(vault: Vault, catalog: Catalog, delayMs: number) {
 }
 
 export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), catalog = new Catalog(vault), prompts = loadPrompts(), options: ServerOptions = {}) {
-  const server = new McpServer({ name: 'obsidian-vault', version: '0.3.2' });
+  const server = new McpServer({ name: 'obsidian-vault', version: '0.4.0' });
   const delay = options.autoRefreshMs ?? (process.env.KNOWLEDGE_AUTO_REFRESH === 'false' ? false : 3000);
   if (delay !== false) vault.onChange = autoRefresh(vault, catalog, delay).schedule;
   const respond = respondIn(vault.root);
@@ -238,9 +240,16 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
   server.registerTool('refresh_notes_snapshot', {
     description: 'Rewrite the vault snapshot (notes.json in KNOWLEDGE_DIR) that the DOI MCP literature maps read to show which notes cite a work. Reads the vault, writes only that file.',
     inputSchema: z.object({}),
-    outputSchema: z.object({ status: z.literal('written'), notes: z.number().int(), linked_to_zotero: z.number().int(), generated: z.string() }),
+    outputSchema: z.object({ status: z.literal('written'), notes: z.number().int(), linked_to_zotero: z.number().int(), generated: z.string(), reports_imported: z.number().int() }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
-  }, async () => respond(async () => writeSnapshot(vault, catalog)));
+  }, async () => respond(async () => { const out = await writeSnapshot(vault, catalog); const reports = await importReports(vault); return { ...out, reports_imported: reports.imported.length }; }));
+
+  server.registerTool('import_reports', {
+    description: 'Copy the reports other services left in KNOWLEDGE_DIR/reports (the DOI MCP weekly job: new citing works, retractions, coverage) into the vault inbox folder, each once. Runs by itself every hour and at refresh_notes_snapshot; call it to see a report now.',
+    inputSchema: z.object({}),
+    outputSchema: z.object({ imported: z.array(z.string()), skipped: z.number().int(), source: z.string() }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+  }, async () => respond(async () => importReports(vault)));
 
   server.registerPrompt('save_to_obsidian', {
     title: 'Save to Obsidian',
@@ -255,6 +264,12 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
       }
     }]
   }));
+
+  server.registerPrompt('map_argument', {
+    title: 'Thesis note (argument map)',
+    description: 'Build or update a thesis note: who supports a position, who objects, with pages, from the reading notes and the sources in Zotero.',
+    argsSchema: z.object({ thesis: z.string().min(1).describe('The thesis or position, in one sentence, or the name of an existing thesis note') })
+  }, ({ thesis }) => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: prompts.argue.replace(/\{\{thesis\}\}/g, thesis) } }] }));
 
   server.registerTool('move_note', {
     description: 'Move or rename a note without overwriting an existing destination. Requires its read version. When the file name changes, wikilinks to it are rewritten in every note (each change is backed up); a move between folders keeps links working without edits. A note moved into the schema scope must pass the schema. The result lists every note updated and any that could not be. Ask the user before moving.',
@@ -385,6 +400,15 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
     next();
   });
   app.get('/health', (_request, response) => { response.json({ status: 'ok' }); });
+  // Operator view, loopback only and without credentials: never routed through the Funnel.
+  app.get('/status', async (request, response) => {
+    const remote = request.socket.remoteAddress ?? '';
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) { response.status(404).json({ error: 'not found' }); return; }
+    const scan = await statusCatalog.scan();
+    const notesFile = path.join(process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge', 'notes.json');
+    const snapshot = await stat(notesFile).then(s => s.mtime.toISOString()).catch(() => null);
+    response.json({ service: 'obsidian-mcp', version: '0.4.0', notes: scan.notes.length, skipped: scan.skipped.length, truncated: scan.truncated, auth: oauthOptions ? 'oauth' : 'bearer', notes_snapshot: snapshot });
+  });
   if (oauthOptions) {
     const relative = path.relative(vault.root, oauthOptions.stateDirectory);
     if (!path.isAbsolute(oauthOptions.stateDirectory) || (relative !== '..' && !relative.startsWith(`..${path.sep}`))) {
@@ -398,7 +422,11 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
     app.get(['/oauth-server-metadata', '/.well-known/oauth-authorization-server/obsidian-auth'], (_request, response) => { response.json(oauth.metadata); });
   }
   const catalog = new Catalog(vault);
+  const statusCatalog = catalog;
   const handler = createMcpHandler(() => createServer(vault, undefined, catalog));
+  // Reports from other services reach the inbox once an hour even when nobody calls a tool.
+  const reportsTimer = setInterval(() => { void importReports(vault).catch(error => console.error(`report import failed: ${(error as Error).message}`)); }, 60 * 60 * 1000);
+  reportsTimer.unref();
   const nodeHandler = toNodeHandler(handler);
   app.use('/mcp', (request, response, next) => {
     if (oauth) {
@@ -409,16 +437,16 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
       oauth.gate(request, response, next);
       return;
     }
-    // Claude web cannot send custom headers, so the static token is also accepted as ?token=.
-    const { token: queryToken, ...otherQuery } = request.query;
-    const supplied = request.headers.authorization ?? (typeof queryToken === 'string' ? `Bearer ${queryToken}` : '');
+    // The token travels only in the Authorization header: a token in the URL would end up in
+    // proxy logs and browser histories. Claude web sends headers from the connector's settings.
+    const supplied = request.headers.authorization ?? '';
     if (!timingSafeEqual(expected, digest(supplied))) {
       response.setHeader('WWW-Authenticate', 'Bearer realm="obsidian-mcp"');
       response.status(401).json({ error: 'Bearer authentication required.' });
       return;
     }
-    if (Object.keys(otherQuery).length) {
-      response.status(400).json({ error: 'Unsupported query parameters.' });
+    if (Object.keys(request.query).length) {
+      response.status(400).json({ error: 'Query parameters are not supported.' });
       return;
     }
     next();
@@ -429,5 +457,5 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
       else response.end();
     });
   });
-  return { app, close: async () => { await handler.close(); oauth?.close(); } };
+  return { app, close: async () => { clearInterval(reportsTimer); await handler.close(); oauth?.close(); } };
 }

@@ -10,6 +10,8 @@ export interface NoteSchema {
   subclasses: { known: string[] };
   aliases: { min: number };
   template: { headings: string[]; exclude: string[] };
+  // Optional note kinds; a thesis note (argument hub) must have Position and Supporters or Objections.
+  kind?: { values: string[]; thesis: { required_headings: string[]; one_of: string[] } };
 }
 
 export function loadSchema(file = new URL('../schema/note-schema.json', import.meta.url)): NoteSchema {
@@ -118,12 +120,22 @@ export function validateNote(path: string, content: string, schema: NoteSchema, 
   }
   const tags = asList(frontmatter.tags);
   if (tags === null) error('tags must be a list.', 'tags');
+  const kind = frontmatter.kind;
+  if (kind !== undefined && kind !== null) {
+    const values = schema.kind?.values ?? [];
+    if (typeof kind !== 'string' || !values.includes(kind)) warning(`kind must be one of ${values.join(', ')}: ${String(kind)}.`, 'kind');
+  }
 
   // Sections are optional; level-4 headings must come from the template (subsections use #####),
   // except in archived folders that keep their earlier structure.
   const allowed = new Set(schema.template.headings);
   if (!under(path, schema.template.exclude)) for (const match of maskCode(body).matchAll(/^####\s+(.+?)\s*$/gm)) {
     if (!allowed.has(match[1])) warning(`Heading not in the template: ${match[1]}. Use a template section, or ##### for a subsection.`);
+  }
+  if (kind === 'thesis' && schema.kind) {
+    const present = new Set([...maskCode(body).matchAll(/^####\s+(.+?)\s*$/gm)].map(m => m[1]));
+    for (const heading of schema.kind.thesis.required_headings) if (!present.has(heading)) warning(`A thesis note needs a #### ${heading} section.`, 'kind');
+    if (!schema.kind.thesis.one_of.some(h => present.has(h))) warning(`A thesis note needs at least one of: ${schema.kind.thesis.one_of.join(', ')}.`, 'kind');
   }
   return issues;
 }

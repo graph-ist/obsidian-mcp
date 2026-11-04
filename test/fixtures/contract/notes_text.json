@@ -1,0 +1,22 @@
+{
+ "schema_version": 1,
+ "generated": "2026-11-04T00:00:00Z",
+ "vault": "Knowledge Graph",
+ "notes": [
+  {
+   "path": "Zettelkasten/Reading Notes/Designerly ways of knowing.md",
+   "title": "Designerly ways of knowing",
+   "text": "#### Thesis\nDesign has its own ways of knowing.\n\n#### My Observations\nCross reads [[Schön]] charitably (p. 221).\n"
+  },
+  {
+   "path": "Zettelkasten/Theses/Affordances are relational.md",
+   "title": "Affordances are relational",
+   "text": "#### Position\nAffordances are relational.\n\n#### Supporters\n- [[Designerly ways of knowing]] (p. 3): x\n"
+  },
+  {
+   "path": "Maps/Design theory.md",
+   "title": "Design theory",
+   "text": "# Design theory\n\n- Cross (1982). Designerly ways of knowing. · [Zotero](zotero://select/library/items/ZKEY0001)\n"
+  }
+ ]
+}

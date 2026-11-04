@@ -27,13 +27,16 @@ test('HTTP authentication, host checks and real MCP tools', async () => {
   try {
     assert.equal((await fetch(endpoint, { method: 'POST' })).status, 401);
     assert.equal((await fetch(endpoint, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
-    assert.equal((await fetch(`${endpoint}?token=wrong`)).status, 401);
-    assert.equal((await fetch(`${endpoint}?token=${token}&x=1`)).status, 400);
-    assert.equal((await fetch(`${endpoint}?token=${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: '{}' })).status === 401, false);
+    // a token in the URL is never accepted, with or without a header
+    assert.equal((await fetch(`${endpoint}?token=${token}`)).status, 401);
+    assert.equal((await fetch(`${endpoint}?x=1`, { headers })).status, 400);
+    const status = await fetch(`http://127.0.0.1:${address.port}/status`);
+    assert.equal(status.status, 200);
+    assert.deepEqual(Object.keys(await status.json()).sort(), ['auth', 'notes', 'notes_snapshot', 'service', 'skipped', 'truncated', 'version']);
     assert.equal((await fetch(endpoint, { headers: { ...headers, Origin: 'https://untrusted.example' } })).status, 403);
     await client.connect(transport);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 15);
+    assert.equal(listed.tools.length, 16);
     const created = await client.callTool({ name: 'write_note', arguments: { path: 'Hello.md', content: '# Hello MCP' } });
     assert.equal(created.isError, undefined);
     const rejected = await client.callTool({ name: 'write_note', arguments: { path: 'Zettelkasten/Bad.md', content: '# no frontmatter' } });
@@ -70,5 +73,17 @@ test('the save_to_obsidian prompt comes from prompts/ and takes its source argum
   assert.match(text, /^Write or update the Obsidian note for: Being and Time/);
   assert.match(text, /map_mark it as read\.$/);
   assert.ok(!text.includes('{{source}}'));
+  await fs.rm(temporary, { recursive: true, force: true });
+});
+
+test('the map_argument prompt takes the thesis', async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidian-prompt-'));
+  const vault = new Vault(path.join(temporary, 'vault'), path.join(temporary, 'backups'));
+  await fs.mkdir(vault.root);
+  const prompts = (createServer(vault) as unknown as { _registeredPrompts: Record<string, { handler: Function }> })._registeredPrompts;
+  const result = await prompts.map_argument.handler({ thesis: 'Affordances are relational' }, {});
+  const text = result.messages[0].content.text as string;
+  assert.match(text, /^Build or update the thesis note for: Affordances are relational/);
+  assert.ok(text.includes('Supporters') && text.includes('Objections') && !text.includes('{{thesis}}'));
   await fs.rm(temporary, { recursive: true, force: true });
 });

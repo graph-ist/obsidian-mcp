@@ -1,0 +1,62 @@
+{
+ "schema_version": 1,
+ "generated": "2026-11-04T00:00:00Z",
+ "vault": "Knowledge Graph",
+ "notes": [
+  {
+   "path": "Zettelkasten/Reading Notes/Designerly ways of knowing.md",
+   "title": "Designerly ways of knowing",
+   "folder": "Zettelkasten/Reading Notes",
+   "cssclasses": [
+    "330304-design-theory"
+   ],
+   "subclasses": [],
+   "tags": [
+    "cited/thesis"
+   ],
+   "aliases": [
+    "design knowing"
+   ],
+   "related": [
+    "[[Schön]]"
+   ],
+   "kind": "reading",
+   "zotero_keys": [
+    "ZKEY0001"
+   ],
+   "links": [
+    "Schön"
+   ]
+  },
+  {
+   "path": "Zettelkasten/Theses/Affordances are relational.md",
+   "title": "Affordances are relational",
+   "folder": "Zettelkasten/Theses",
+   "cssclasses": [
+    "500310-phenomenology"
+   ],
+   "subclasses": [],
+   "tags": [],
+   "aliases": [],
+   "related": [],
+   "kind": "thesis",
+   "zotero_keys": [],
+   "links": [
+    "Designerly ways of knowing"
+   ]
+  },
+  {
+   "path": "Maps/Design theory.md",
+   "title": "Design theory",
+   "folder": "Maps",
+   "cssclasses": [],
+   "subclasses": [],
+   "tags": [],
+   "aliases": [],
+   "related": [],
+   "kind": null,
+   "zotero_keys": [],
+   "links": []
+  }
+ ]
+}

@@ -70,3 +70,26 @@ test('a write refreshes notes.json after the burst', async () => {
     if (previous === undefined) delete process.env.KNOWLEDGE_DIR; else process.env.KNOWLEDGE_DIR = previous;
   }
 });
+
+test('contract fixtures match what the snapshot writer produces (copied to the DOI MCP tests)', async () => {
+  const { buildSnapshot, buildTextSnapshot } = await import('../src/snapshot.js');
+  const { mkdirSync, readFileSync, writeFileSync, existsSync } = await import('node:fs');
+  const path = await import('node:path');
+  const notes = [
+    { path: 'Zettelkasten/Reading Notes/Designerly ways of knowing.md', version: 'v1', content: '---\nkind: reading\ncssclasses:\n  - 330304-design-theory\nrelated:\n  - "[[Schön]]"\naliases:\n  - design knowing\nreference:\n  - "[Cross (1982)](zotero://select/library/items/ZKEY0001)"\ntags:\n  - cited/thesis\n---\n#### Thesis\nDesign has its own ways of knowing.\n\n#### My Observations\nCross reads [[Schön]] charitably (p. 221).\n' },
+    { path: 'Zettelkasten/Theses/Affordances are relational.md', version: 'v2', content: '---\nkind: thesis\ncssclasses:\n  - 500310-phenomenology\n---\n#### Position\nAffordances are relational.\n\n#### Supporters\n- [[Designerly ways of knowing]] (p. 3): x\n' },
+    { path: 'Maps/Design theory.md', version: 'v3', content: '# Design theory\n\n- Cross (1982). Designerly ways of knowing. · [Zotero](zotero://select/library/items/ZKEY0001)\n' }
+  ];
+  const snap = buildSnapshot('/vault/Knowledge Graph', notes);
+  const text = buildTextSnapshot('/vault/Knowledge Graph', notes);
+  snap.generated = text.generated = '2026-11-04T00:00:00Z';
+  const dir = path.join(import.meta.dirname, 'fixtures', 'contract');
+  if (process.env.UPDATE_CONTRACT) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'notes.json'), JSON.stringify(snap, null, 1) + '\n');
+    writeFileSync(path.join(dir, 'notes_text.json'), JSON.stringify(text, null, 1) + '\n');
+  }
+  assert.ok(existsSync(path.join(dir, 'notes.json')), 'run with UPDATE_CONTRACT=1 once');
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'notes.json'), 'utf8')), snap, 'snapshot format changed: UPDATE_CONTRACT=1 and copy test/fixtures/contract to the DOI MCP');
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'notes_text.json'), 'utf8')), text);
+});

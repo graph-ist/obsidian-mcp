@@ -8,6 +8,7 @@
   ]
  },
  "fields": [
+  "kind",
   "cssclasses",
   "subclasses",
   "related",
@@ -228,10 +229,32 @@
    "Open Questions",
    "To Verify",
    "Definition",
-   "Cited by"
+   "Cited by",
+   "Position",
+   "Supporters",
+   "Objections",
+   "Replies"
   ],
   "exclude": [
    "Zettelkasten/Storia della filosofia/"
   ]
+ },
+ "kind": {
+  "values": [
+   "reading",
+   "person",
+   "concept",
+   "thesis",
+   "map"
+  ],
+  "thesis": {
+   "required_headings": [
+    "Position"
+   ],
+   "one_of": [
+    "Supporters",
+    "Objections"
+   ]
+  }
  }
 }

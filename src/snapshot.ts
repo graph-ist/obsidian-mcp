@@ -31,8 +31,20 @@ export function noteEntry(rel: string, content: string) {
     path: rel, title: noteName(rel), folder: path.posix.dirname(rel),
     cssclasses: list(frontmatter.cssclasses), subclasses: list(frontmatter.subclasses),
     tags: list(frontmatter.tags), aliases: list(frontmatter.aliases), related: list(frontmatter.related),
+    kind: typeof frontmatter.kind === 'string' ? frontmatter.kind : null,
     zotero_keys: [...new Set(references.flatMap(r => [...r.matchAll(ZOTERO_KEY)].map(m => m[1])))],
     links
+  };
+}
+
+// The body of every note (frontmatter removed) for the shared corpus that the DOI MCP's
+// search_everything indexes: a separate file, so notes.json stays small for the maps.
+export function buildTextSnapshot(root: string, notes: CatalogNote[]) {
+  const body = (content: string) => { try { return splitNote(content).body; } catch { return content; } };
+  return {
+    schema_version: SCHEMA_VERSION,
+    generated: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), vault: path.basename(root),
+    notes: notes.map(note => ({ path: note.path, title: noteName(note.path), text: body(note.content) }))
   };
 }
 
@@ -47,10 +59,14 @@ export function buildSnapshot(root: string, notes: CatalogNote[]) {
 // Writes notes.json atomically, readable by group (the services in group `knowledge`).
 export async function writeSnapshot(vault: Vault, catalog: Catalog, outDir = process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge') {
   await fs.mkdir(outDir, { recursive: true });
-  const snap = buildSnapshot(vault.root, (await catalog.scan()).notes);
+  const scanned = (await catalog.scan()).notes;
+  const snap = buildSnapshot(vault.root, scanned);
   const out = path.join(outDir, 'notes.json');
   await fs.writeFile(`${out}.tmp`, JSON.stringify(snap), { mode: 0o640 });
   await fs.rename(`${out}.tmp`, out);
+  const text = path.join(outDir, 'notes_text.json');
+  await fs.writeFile(`${text}.tmp`, JSON.stringify(buildTextSnapshot(vault.root, scanned)), { mode: 0o640 });
+  await fs.rename(`${text}.tmp`, text);
   return { status: 'written', notes: snap.notes.length, linked_to_zotero: snap.notes.filter(n => n.zotero_keys.length).length, generated: snap.generated };
 }
 

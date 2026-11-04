@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+Incompatibile con 0.3.x
+- Modalità a token statico: il token è accettato solo nell'header `Authorization: Bearer`; `?token=` nell'URL viene rifiutato. In Claude web il token va in *Request headers* del connettore.
+
+Novità
+- Note di tesi: campo `kind` (facoltativo, valori `reading`, `person`, `concept`, `thesis`, `map`) e sezioni `Position`, `Supporters`, `Objections`, `Replies` nel template; una nota `kind: thesis` senza Position o senza Supporters/Objections dà un avviso. Prompt `map_argument` (`prompts/argue.md`) che costruisce l'hub dalle note di lettura e dai testi in Zotero.
+- `notes_text.json` in `KNOWLEDGE_DIR`: il corpo di ogni nota per la ricerca unica del DOI MCP (`search_everything`); `notes.json` porta `kind`.
+- `import_reports`: i report di altri servizi (`KNOWLEDGE_DIR/reports/*.md`) entrano una volta sola in `Inbox/` (`OBSIDIAN_INBOX_FOLDER`), ogni ora e a ogni `refresh_notes_snapshot`.
+- `GET /status` da loopback senza credenziali: versione, note, saltate, autenticazione, data dell'istantanea.
+
 ## 0.3.2
 
 - I codici ANZSRC ammessi in `cssclasses` sono quelli dello schema più i tag `sub/` di `library.json` in `KNOWLEDGE_DIR` (`src/vocabulary.ts`, cache per mtime): un codice usato in Zotero non va più copiato a mano nello schema. L'avviso dice di taggare l'item in Zotero oppure di aggiungere il codice allo schema.

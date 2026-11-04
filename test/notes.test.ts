@@ -105,3 +105,14 @@ test('aliases: surname + year and other notes\' names are flagged', () => {
   assert.doesNotMatch(messages, /heidegger technology/);
   assert.doesNotMatch(messages, /"parole nel vuoto \(loos\)" is the name/);
 });
+
+test('kind: thesis notes need Position and Supporters or Objections', async () => {
+  const { validateNote, loadSchema } = await import('../src/notes.js');
+  const schema = loadSchema();
+  const base = '---\nkind: thesis\ncssclasses:\n  - 500310-phenomenology\naliases:\n  - a\n  - b\n  - c\n---\n';
+  const messages = (content: string) => validateNote('Zettelkasten/Theses/T.md', content, schema).filter(i => i.field === 'kind').map(i => i.message);
+  assert.deepEqual(messages(base + '#### Position\nP\n#### Objections\n- [[X]]\n'), []);
+  assert.equal(messages(base + '#### Position\nP\n').length, 1);
+  assert.equal(messages(base + '#### Supporters\n- [[X]]\n').length, 1);
+  assert.match(messages('---\nkind: essay\n---\n#### Thesis\nx\n')[0], /kind must be one of/);
+});
