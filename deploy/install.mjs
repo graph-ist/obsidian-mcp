@@ -18,8 +18,10 @@ const destination = '/opt/obsidian-mcp';
 const environment = '/etc/obsidian-mcp.env';
 const upgrade = process.argv.includes('--oauth');
 const existing = fs.existsSync(environment) ? parseEnv(fs.readFileSync(environment, 'utf8')) : {};
-const vault = existing.OBSIDIAN_VAULT_PATH ?? '/srv/obsidian-webdav/Knowledge Graph';
-const hostname = existing.PUBLIC_HOSTNAME ?? 'rpi-aegis.tailaceb71.ts.net';
+const vault = existing.OBSIDIAN_VAULT_PATH ?? process.env.OBSIDIAN_VAULT_PATH;
+if (!vault) throw new Error('Set OBSIDIAN_VAULT_PATH (the folder that holds the notes) for a first installation.');
+const hostname = existing.PUBLIC_HOSTNAME ?? process.env.PUBLIC_HOSTNAME;
+if (!hostname) throw new Error('Set PUBLIC_HOSTNAME (the Tailscale Funnel hostname) for a first installation.');
 const origin = new URL(`https://${hostname}`).origin;
 
 for (const required of ['dist/index.js', 'schema/note-schema.json', 'prompts/save_to_obsidian.md', 'node_modules', 'package.json', 'package-lock.json']) {
