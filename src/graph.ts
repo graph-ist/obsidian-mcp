@@ -49,9 +49,9 @@ function resolve(graph: LinkGraph, note: string): string {
   return name;
 }
 
-const describe = (graph: LinkGraph, names: Iterable<string>) => [...names].map(name => noteName(graph.paths.get(name)!));
-const ambiguity = (graph: LinkGraph) => graph.duplicates.size
-  ? { duplicateNames: Object.fromEntries(graph.duplicates) } : {};
+// Paths, not names: with duplicate names only the path says which note is meant.
+const describe = (graph: LinkGraph, names: Iterable<string>) => [...names].map(name => graph.paths.get(name)!);
+const ambiguity = (graph: LinkGraph) => graph.duplicates.size ? { duplicateNames: graph.duplicates.size } : {};
 
 // Jaccard similarity of neighbourhoods: notes connected to the same notes, linked or not.
 export function similarNotes(graph: LinkGraph, note: string, limit = 10, minScore = 0.15) {

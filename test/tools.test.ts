@@ -15,9 +15,14 @@ async function setup(files: Record<string, string | Buffer>) {
   }
   const vault = new Vault(root, path.join(temporary, 'backups'));
   // Call tool handlers directly; the HTTP layer is covered in server.test.ts.
-  const tools = (createServer(vault) as unknown as { _registeredTools: Record<string, { handler: Function }> })._registeredTools;
+  const tools = (createServer(vault) as unknown as { _registeredTools: Record<string, { handler: Function; outputSchema?: { safeParse: (value: unknown) => { success: boolean; error?: unknown } } }> })._registeredTools;
   const call = async (name: string, args: object) => {
     const result = await tools[name].handler(args, {});
+    if (!result.isError) {
+      // What the SDK would check over the wire: every successful result matches its output schema.
+      const parsed = tools[name].outputSchema!.safeParse(result.structuredContent);
+      assert.ok(parsed.success, `${name} output: ${JSON.stringify(parsed.error)}`);
+    }
     return { error: Boolean(result.isError), data: result.isError ? result.content[0].text : JSON.parse(result.content[0].text) };
   };
   return { root, vault, call, read: (name: string) => fs.readFile(path.join(root, name), 'utf8') };
@@ -118,4 +123,34 @@ test('search reports truncation only when the limit stops the scan', async () =>
   const all = await call('search_notes', { query: 'NEEDLE', limit: 10 });
   assert.deepEqual([all.data.matches.length, all.data.truncated, all.data.scanned], [3, false, 4]);
   assert.deepEqual((await call('search_notes', { query: 'b/b', limit: 10 })).data.matches.map((m: { path: string }) => m.path), ['b/b.md']);
+});
+
+test('every tool returns structured content that matches its output schema', async () => {
+  const { root, vault, call } = await setup({
+    'A.md': '---\ntags:\n  - x\nsubclasses:\n  - Phenomenology\n---\n[[B]] [[Nowhere]]', 'B.md': '[[A]] [[C]]', 'C.md': '[[A]]', 'D.md': '[[A]]', 'Sub/A.md': 'duplicate name'
+  });
+  process.env.KNOWLEDGE_DIR = path.join(root, '..', 'knowledge');
+  const listed = await call('list_notes', { folder: '', limit: 2, offset: 0 });
+  assert.deepEqual([listed.data.total, listed.data.nextOffset], [5, 2]);
+  assert.equal((await call('search_notes', { query: 'duplicate', limit: 5 })).data.matches[0].path, 'Sub/A.md');
+  const similar = await call('similar_notes', { note: 'B', limit: 5, minScore: 0 });
+  assert.equal(similar.data.duplicateNames, 1);
+  assert.deepEqual(similar.data.similar.map((s: { note: string; shared: string[] }) => [s.note, s.shared]), [['D.md', ['A.md']], ['C.md', ['A.md']], ['A.md', ['C.md']]]);
+  const suggested = await call('suggest_links', { note: 'D.md', limit: 5 });
+  assert.deepEqual(suggested.data.suggestions.map((s: { note: string; via: string[] }) => [s.note, s.via]), [['B.md', ['A.md']], ['C.md', ['A.md']]]);
+  assert.deepEqual((await call('unresolved_links', { limit: 5, minLinks: 1 })).data.links, [{ target: 'Nowhere', linkedFrom: 1, from: ['A.md'] }]);
+  const back = await call('backlinks', { note: 'A', limit: 1 });
+  assert.deepEqual([back.data.count, back.data.backlinks.length, back.data.limited, back.data.duplicateNames], [3, 1, true, ['A.md', 'Sub/A.md']]);
+  const queried = await call('query_notes', { field: 'subclasses', prefix: 'phen', folder: '', limit: 10 });
+  assert.deepEqual(queried.data.notes, [{ path: 'A.md', values: ['Phenomenology'] }]);
+  const checked = await call('validate_note', { folder: '' });
+  assert.deepEqual(checked.data.duplicateNames, { a: ['A.md', 'Sub/A.md'] });
+  assert.equal((await call('validate_note', { note: 'A.md' })).data.inScope, false);
+  const snapshot = await call('refresh_notes_snapshot', {});
+  assert.deepEqual([snapshot.data.status, snapshot.data.notes], ['written', 5]);
+  const { version } = await vault.read('C.md');
+  const patched = await call('patch_frontmatter', { path: 'C.md', expectedVersion: version, set: { tags: ['y'] }, remove: [] });
+  const appended = await call('append_note', { path: 'C.md', expectedVersion: patched.data.version, text: 'more' });
+  assert.deepEqual((await call('delete_note', { path: 'C.md', expectedVersion: appended.data.version })).data.deleted, 'C.md');
+  assert.deepEqual((await call('unresolved_links', { limit: 5, minLinks: 1 })).data.links.map((l: { target: string }) => l.target), ['C', 'Nowhere']);
 });

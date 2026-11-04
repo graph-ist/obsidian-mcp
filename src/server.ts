@@ -14,9 +14,10 @@ import { inScope, loadSchema, patchFrontmatter, validateNote, type NoteSchema } 
 import { createOAuth, type OAuthOptions } from './oauth.js';
 import { writeSnapshot } from './snapshot.js';
 
-const respondIn = (root: string) => async (operation: () => Promise<unknown>) => {
+const respondIn = (root: string) => async (operation: () => Promise<object>) => {
   try {
-    return { content: [{ type: 'text' as const, text: JSON.stringify(await operation()) }] };
+    const result = await operation();
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result as Record<string, unknown> };
   } catch (error) {
     const { code, path: file, dest } = error as NodeJS.ErrnoException & { dest?: string };
     const named = code === 'EEXIST' ? dest ?? file : file;
@@ -57,15 +58,23 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
   const notePath = z.string().min(1).max(1000).describe('Relative Markdown path, for example Notes/idea.md.');
   const version = z.string().regex(/^[a-f0-9]{64}$/).describe('Exact version returned by read_note. Read again on conflict.');
   const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+  // Output schemas: clients validate results against them, so descriptions need not repeat the shape.
+  const issue = z.object({ level: z.enum(['error', 'warning']), field: z.string().optional(), message: z.string() });
+  const skipped = z.array(z.object({ path: z.string(), reason: z.string() }));
+  const scanExtras = { skipped: skipped.optional().describe('Unreadable notes, listed only when present.'), truncated: z.boolean().optional().describe('Present when the vault exceeds the catalog cap.') };
+  const written = z.object({ path: z.string(), content: z.string(), version: z.string(), backupId: z.string().optional(), issues: z.array(issue) });
+  const report = z.object({ path: z.string(), inScope: z.boolean(), issues: z.array(issue) });
   const writes = { readOnlyHint: false, destructiveHint: true, openWorldHint: false };
 
   server.registerTool('list_notes', {
-    description: 'List the notes and folders directly inside one folder, with pagination. Returns entries (path, type "note" or "directory"), total and nextOffset (null on the last page). Hidden folders and symlinks are excluded. Not recursive: use search_notes or query_notes to find a note by content or frontmatter.',
+    description: 'List the notes and folders directly inside one folder, with pagination (nextOffset is null on the last page). Hidden folders and symlinks are excluded. Not recursive: use search_notes or query_notes to find a note by content or frontmatter.',
     inputSchema: z.object({
       folder: z.string().max(1000).default('').describe('Relative folder path, "" for the vault root.'),
       limit: z.number().int().min(1).max(200).default(100),
       offset: z.number().int().min(0).default(0)
-    }), annotations: readOnly
+    }),
+    outputSchema: z.object({ entries: z.array(z.object({ path: z.string(), type: z.enum(['note', 'directory']) })), total: z.number().int(), nextOffset: z.number().int().nullable() }),
+    annotations: readOnly
   }, async ({ folder, limit, offset }) => respond(() => vault.list(folder, limit, offset)));
 
   server.registerTool('read_note', {
@@ -73,7 +82,9 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
     inputSchema: z.object({
       path: notePath,
       maxChars: z.number().int().min(1).max(1_000_000).default(50_000).describe('Characters of content to return.')
-    }), annotations: readOnly
+    }),
+    outputSchema: z.object({ path: z.string(), content: z.string(), version: z.string(), truncated: z.boolean().optional(), totalChars: z.number().int().optional() }),
+    annotations: readOnly
   }, async ({ path, maxChars }) => respond(async () => {
     const note = await vault.read(path);
     return note.content.length > maxChars
@@ -84,13 +95,14 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
   server.registerTool('search_notes', {
     description: 'Case-insensitive literal search in note paths and contents. Scans at most 2000 notes; results report truncation.',
     inputSchema: z.object({ query: z.string().min(1).max(300), limit: z.number().int().min(1).max(100).default(20) }),
+    outputSchema: z.object({ matches: z.array(z.object({ path: z.string(), snippet: z.string() })), scanned: z.number().int(), truncated: z.boolean().describe('True when the limit stopped the search.'), vaultTruncated: z.boolean().optional() }),
     annotations: readOnly
   }, async ({ query, limit }) => respond(() => catalog.search(query, limit)));
 
   server.registerTool('write_note', {
     description: 'Create or update a Markdown note. Omit expectedVersion only to create a NEW note; updates require the read version. Existing content is backed up. Notes inside the schema scope (schema/note-schema.json) must pass the note schema: errors reject the write, warnings come back in "issues". For frontmatter-only changes use patch_frontmatter.',
     inputSchema: z.object({ path: notePath, content: z.string().max(1_000_000), expectedVersion: version.optional() }),
-    annotations: writes
+    outputSchema: written, annotations: writes
   }, async ({ path, content, expectedVersion }) => respond(async () => {
     const issues = await checked(catalog, schema, path, content);
     return { ...(await vault.write(path, content, expectedVersion)), issues };
@@ -102,7 +114,7 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
       path: notePath, expectedVersion: version,
       set: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.null()])).default({}),
       remove: z.array(z.string()).default([])
-    }), annotations: writes
+    }), outputSchema: written, annotations: writes
   }, async ({ path, expectedVersion, set, remove }) => respond(async () => {
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
@@ -124,6 +136,13 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
       note: notePath.optional().describe('Path of one note to check.'),
       folder: z.string().max(1000).optional().describe('Folder to check recursively, "" for the whole vault.')
     }),
+    outputSchema: z.object({
+      path: z.string().optional(), inScope: z.boolean().optional(), issues: z.array(issue).optional(),
+      folder: z.string().optional(), checked: z.number().int().optional(), outOfScope: z.number().int().optional(),
+      withErrors: z.number().int().optional(), withWarningsOnly: z.number().int().optional(), notes: z.array(report).optional(),
+      duplicateNames: z.record(z.string(), z.array(z.string())).optional().describe('Note names shared by several notes, with their paths.'),
+      ...scanExtras
+    }).describe('A single report for a note; counts, the notes with issues and duplicate names for a folder.'),
     annotations: readOnly
   }, async ({ note, folder }) => respond(async () => {
     if ((note === undefined) === (folder === undefined)) throw new Error('Pass exactly one of note, folder.');
@@ -136,11 +155,12 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
     const notes = scan.notes.filter(note => inScope(note.path, schema)).map(note => report(note.path, note.content));
     const outOfScope = scan.notes.length - notes.length;
     const withIssues = notes.filter(note => note.issues.length);
+    const duplicates = buildGraph(scan.notes).duplicates;
     return {
       folder: path, checked: notes.length, outOfScope,
       withErrors: notes.filter(note => note.issues.some(issue => issue.level === 'error')).length,
       withWarningsOnly: withIssues.filter(note => note.issues.every(issue => issue.level === 'warning')).length,
-      notes: withIssues, ...extras(scan)
+      notes: withIssues, ...(duplicates.size ? { duplicateNames: Object.fromEntries(duplicates) } : {}), ...extras(scan)
     };
   }));
 
@@ -156,24 +176,36 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
   server.registerTool('similar_notes', {
     description: 'Notes with a similar neighbourhood in the link graph (Jaccard on body links + frontmatter related), linked or not. Each result lists the shared neighbours that explain it. Use it to answer "what is close to X?". Not for finding links to add: use suggest_links.',
     inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(50).default(10), minScore: z.number().min(0).max(1).default(0.15) }),
+    outputSchema: z.object({
+      note: z.string(), neighbors: z.number().int(),
+      similar: z.array(z.object({ note: z.string(), score: z.number(), linked: z.boolean(), shared: z.array(z.string()).describe('Paths of the shared neighbours.') })),
+      duplicateNames: z.number().int().optional().describe('Number of note names shared by several notes; validate_note on a folder lists them.'), ...scanExtras
+    }),
     annotations: readOnly
   }, async ({ note, limit, minScore }) => respond(() => withGraph(graph => similarNotes(graph, note, limit, minScore))));
 
   server.registerTool('suggest_links', {
     description: 'Notes not yet linked to this one that probably should be (Adamic-Adar: shared neighbours, rare ones weigh more). "via" explains each suggestion. Use it to fill "related" with notes that exist; propose before patching. Not for exploring the neighbourhood: use similar_notes.',
     inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(50).default(10) }),
+    outputSchema: z.object({
+      note: z.string(),
+      suggestions: z.array(z.object({ note: z.string(), score: z.number(), relative: z.number().int().describe('Score as a percentage of the best suggestion.'), via: z.array(z.string()).describe('Paths of the shared neighbours.') })),
+      duplicateNames: z.number().int().optional(), ...scanExtras
+    }),
     annotations: readOnly
   }, async ({ note, limit }) => respond(() => withGraph(graph => suggestLinks(graph, note, limit))));
 
   server.registerTool('unresolved_links', {
     description: 'Wikilinks pointing to notes that do not exist yet, most linked first: the list of concepts still to write. Attachments (PDF, images) and links inside code are ignored.',
     inputSchema: z.object({ limit: z.number().int().min(1).max(500).default(50), minLinks: z.number().int().min(1).default(1) }),
+    outputSchema: z.object({ total: z.number().int(), links: z.array(z.object({ target: z.string(), linkedFrom: z.number().int(), from: z.array(z.string()).describe('Up to five paths of linking notes.') })), ...scanExtras }),
     annotations: readOnly
   }, async ({ limit, minLinks }) => respond(() => withGraph(graph => unresolvedLinks(graph, limit, minLinks))));
 
   server.registerTool('refresh_notes_snapshot', {
     description: 'Rewrite the vault snapshot (notes.json in KNOWLEDGE_DIR) that the DOI MCP literature maps read to show which notes cite a work. Reads the vault, writes only that file.',
     inputSchema: z.object({}),
+    outputSchema: z.object({ status: z.literal('written'), notes: z.number().int(), linked_to_zotero: z.number().int(), generated: z.string() }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
   }, async () => respond(async () => writeSnapshot(vault, catalog)));
 
@@ -194,6 +226,10 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
   server.registerTool('move_note', {
     description: 'Move or rename a note without overwriting an existing destination. Requires its read version. When the file name changes, wikilinks to it are rewritten in every note (each change is backed up); a move between folders keeps links working without edits. A note moved into the schema scope must pass the schema. The result lists every note updated and any that could not be. Ask the user before moving.',
     inputSchema: z.object({ path: notePath, destination: notePath, expectedVersion: version }),
+    outputSchema: z.object({
+      path: z.string(), backupId: z.string(), linksUpdatedIn: z.array(z.string()), linksNotUpdated: skipped.optional(),
+      warning: z.string().optional(), notScanned: skipped.optional(), truncated: z.boolean().optional(), issues: z.array(issue)
+    }),
     annotations: writes
   }, async ({ path, destination, expectedVersion }) => respond(async () => {
     const current = await vault.read(path);
@@ -240,7 +276,7 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
   server.registerTool('append_note', {
     description: 'Add text at the end of a note, or at the end of one section (heading, e.g. "To Verify"), without rewriting the rest. Headings inside code blocks are ignored. Requires the read version. Same schema check as write_note.',
     inputSchema: z.object({ path: notePath, expectedVersion: version, text: z.string().min(1).max(200_000), heading: z.string().max(300).optional() }),
-    annotations: writes
+    outputSchema: written, annotations: writes
   }, async ({ path, expectedVersion, text, heading }) => respond(async () => {
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
@@ -251,7 +287,12 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
 
   server.registerTool('backlinks', {
     description: 'Notes that link to a note (body links and frontmatter related), with the line of the link as context. "count" is the full number; "backlinks" holds at most "limit" of them.',
-    inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(200).default(50) }), annotations: readOnly
+    inputSchema: z.object({ note: noteName, limit: z.number().int().min(1).max(200).default(50) }),
+    outputSchema: z.object({
+      note: z.string(), count: z.number().int(), backlinks: z.array(z.object({ path: z.string(), context: z.string() })), limited: z.boolean(),
+      duplicateNames: z.array(z.string()).optional().describe('Paths of other notes with the same name, when the target name is ambiguous.'), ...scanExtras
+    }),
+    annotations: readOnly
   }, async ({ note, limit }) => respond(async () => {
     const scan = await readAll();
     const result = backlinks(scan.notes, note);
@@ -265,21 +306,24 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
       value: z.string().max(300).optional().describe('Exact match (case-insensitive). Not together with prefix.'),
       prefix: z.string().max(100).optional().describe('Prefix match on each value. Not together with value.'),
       folder: z.string().max(1000).default(''), limit: z.number().int().min(1).max(500).default(100)
-    }), annotations: readOnly
+    }),
+    outputSchema: z.object({ total: z.number().int(), notes: z.array(z.object({ path: z.string(), values: z.array(z.unknown()).describe('The field\'s values in that note.') })), limited: z.boolean(), ...scanExtras }),
+    annotations: readOnly
   }, async ({ field, value, prefix, folder, limit }) => respond(async () => {
     if (value !== undefined && prefix !== undefined) throw new Error('Pass value or prefix, not both.');
     const scan = await readAll(folder);
     const matches = [];
     for (const note of scan.notes) {
       const values = matchesQuery(note.content, field, value, prefix);
-      if (values) matches.push({ path: note.path, [field]: values });
+      if (values) matches.push({ path: note.path, values });
     }
     return { total: matches.length, notes: matches.slice(0, limit), limited: matches.length > limit, ...extras(scan) };
   }));
 
   server.registerTool('delete_note', {
     description: 'Remove a note from the synchronized vault, keeping a recovery copy outside it. Requires its read version. Ask the user before deleting.',
-    inputSchema: z.object({ path: notePath, expectedVersion: version }), annotations: writes
+    inputSchema: z.object({ path: notePath, expectedVersion: version }),
+    outputSchema: z.object({ deleted: z.string(), backupId: z.string() }), annotations: writes
   }, async ({ path, expectedVersion }) => respond(() => vault.delete(path, expectedVersion)));
   return server;
 }

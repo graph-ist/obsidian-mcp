@@ -19,7 +19,7 @@ test('body links, aliases, headings and related all count; names resolve case-in
 test('similar notes share neighbours and explain why', () => {
   const result = similarNotes(graph, 'Sartre', 10, 0);
   // Gadamer: {Husserl, Heidegger} against Sartre's {Husserl, Phenomenology, Heidegger} gives 2/3
-  assert.deepEqual(result.similar[0], { note: 'Gadamer.md', score: 0.667, linked: false, shared: ['Husserl', 'Heidegger'] });
+  assert.deepEqual(result.similar[0], { note: 'Gadamer.md', score: 0.667, linked: false, shared: ['Husserl.md', 'Zettelkasten/Heidegger.md'] });
   assert.equal(result.similar.find(item => item.note === 'Phenomenology.md')!.linked, true);
 });
 
@@ -32,7 +32,7 @@ test('suggested links exclude existing links and the note itself', () => {
 
 test('unresolved links are ranked by how many notes want them', () => {
   const result = unresolvedLinks(graph);
-  assert.deepEqual(result.links[0], { target: 'Being and Time', linkedFrom: 2, from: ['Heidegger', 'Lonely'] });
+  assert.deepEqual(result.links[0], { target: 'Being and Time', linkedFrom: 2, from: ['Zettelkasten/Heidegger.md', 'Lonely.md'] });
   assert.equal(result.total, 2);
 });
 
@@ -43,5 +43,6 @@ test('table links resolve; attachments, embeds and code are not links; duplicate
   ]);
   assert.deepEqual([...g.neighbors.get('a')!], ['kant']);
   assert.deepEqual(unresolvedLinks(g).links.map(link => link.target), ['Web 2.0']);
-  assert.deepEqual(similarNotes(g, 'A', 10, 0).duplicateNames, { kant: ['Kant.md', 'x/Kant.md'] });
+  assert.equal(similarNotes(g, 'A', 10, 0).duplicateNames, 1);
+  assert.deepEqual([...g.duplicates], [['kant', ['Kant.md', 'x/Kant.md']]]);
 });
