@@ -5,6 +5,7 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { z } from 'zod/v4';
 import { Vault } from './vault.js';
+import { Catalog, type CatalogNote } from './catalog.js';
 import { appendText, matchesQuery, renameLinks } from './edit.js';
 import { noteName as baseName } from './markdown.js';
 import { backlinks, buildGraph, similarNotes, suggestLinks, unresolvedLinks } from './graph.js';
@@ -28,12 +29,12 @@ const respondIn = (root: string) => async (operation: () => Promise<unknown>) =>
 };
 
 // Notes inside the schema scope cannot be written with errors; warnings are returned with the result.
-async function noteTitles(vault: Vault): Promise<Set<string>> {
-  return new Set((await vault.notes('', 100000)).paths.map(note => baseName(note).toLowerCase()));
+async function noteTitles(catalog: Catalog): Promise<Set<string>> {
+  return new Set((await catalog.paths()).map(note => baseName(note).toLowerCase()));
 }
 
-async function checked(vault: Vault, schema: NoteSchema, path: string, content: string) {
-  const issues = validateNote(path, content, schema, await noteTitles(vault));
+async function checked(catalog: Catalog, schema: NoteSchema, path: string, content: string) {
+  const issues = validateNote(path, content, schema, await noteTitles(catalog));
   const scoped = inScope(path, schema);
   const errors = issues.filter(issue => issue.level === 'error');
   if (scoped && errors.length) {
@@ -42,7 +43,7 @@ async function checked(vault: Vault, schema: NoteSchema, path: string, content: 
   return scoped ? issues : [];
 }
 
-export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
+export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), catalog = new Catalog(vault)) {
   const server = new McpServer({ name: 'obsidian-vault', version: '0.2.0' });
   const respond = respondIn(vault.root);
   const notePath = z.string().min(1).max(1000).describe('Relative Markdown path, for example Notes/idea.md.');
@@ -76,14 +77,14 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     description: 'Case-insensitive literal search in note paths and contents. Scans at most 2000 notes; results report truncation.',
     inputSchema: z.object({ query: z.string().min(1).max(300), limit: z.number().int().min(1).max(100).default(20) }),
     annotations: readOnly
-  }, async ({ query, limit }) => respond(() => vault.search(query, limit)));
+  }, async ({ query, limit }) => respond(() => catalog.search(query, limit)));
 
   server.registerTool('write_note', {
     description: 'Create or update a Markdown note. Omit expectedVersion only to create a NEW note; updates require the read version. Existing content is backed up. Notes inside the schema scope (schema/note-schema.json) must pass the note schema: errors reject the write, warnings come back in "issues". For frontmatter-only changes use patch_frontmatter.',
     inputSchema: z.object({ path: notePath, content: z.string().max(1_000_000), expectedVersion: version.optional() }),
     annotations: writes
   }, async ({ path, content, expectedVersion }) => respond(async () => {
-    const issues = await checked(vault, schema, path, content);
+    const issues = await checked(catalog, schema, path, content);
     return { ...(await vault.write(path, content, expectedVersion)), issues };
   }));
 
@@ -98,26 +99,13 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
     const content = patchFrontmatter(current.content, set, remove, schema.fields);
-    const issues = await checked(vault, schema, path, content);
+    const issues = await checked(catalog, schema, path, content);
     return { ...(await vault.write(path, content, expectedVersion)), issues };
   }));
 
-  // Every readable note under a folder. Unreadable notes (not UTF-8, over 1 MB) are skipped and
-  // listed instead of failing the whole call; `truncated` reports the 2000-note cap.
-  const readAll = async (folder = '') => {
-    const { paths, truncated } = await vault.notes(folder);
-    const notes: { path: string; content: string; version: string }[] = [];
-    const skipped: { path: string; reason: string }[] = [];
-    for (const note of paths) {
-      try {
-        const { content, version } = await vault.read(note);
-        notes.push({ path: note, content, version });
-      } catch (failure) {
-        skipped.push({ path: note, reason: (failure as Error).message });
-      }
-    }
-    return { notes, skipped, truncated };
-  };
+  // Every readable note under a folder, from the in-memory catalog. Unreadable notes (not UTF-8,
+  // over 1 MB) are listed in `skipped` instead of failing the call; `truncated` reports the cap.
+  const readAll = (folder = '') => catalog.scan(folder);
   const extras = (scan: { skipped: unknown[]; truncated: boolean }) => ({
     ...(scan.skipped.length ? { skipped: scan.skipped } : {}), ...(scan.truncated ? { truncated: true } : {})
   });
@@ -131,7 +119,7 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     annotations: readOnly
   }, async ({ note, folder }) => respond(async () => {
     if ((note === undefined) === (folder === undefined)) throw new Error('Pass exactly one of note, folder.');
-    const titles = await noteTitles(vault);
+    const titles = await noteTitles(catalog);
     const report = (note: string, content: string) => ({ path: note, inScope: inScope(note, schema), issues: validateNote(note, content, schema, titles) });
     if (note !== undefined) return report(note, (await vault.read(note)).content);
     const path = folder!;
@@ -148,9 +136,12 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
     };
   }));
 
+  // The graph is rebuilt only when the catalog changed since the last call.
+  let cachedGraph: { generation: number; graph: ReturnType<typeof buildGraph> } | undefined;
   const withGraph = async <Result extends object>(use: (graph: ReturnType<typeof buildGraph>) => Result) => {
     const scan = await readAll();
-    return { ...use(buildGraph(scan.notes)), ...extras(scan) };
+    if (cachedGraph?.generation !== catalog.generation) cachedGraph = { generation: catalog.generation, graph: buildGraph(scan.notes) };
+    return { ...use(cachedGraph.graph), ...extras(scan) };
   };
   const noteName = z.string().min(1).max(1000).describe('Note path or bare note name, e.g. Heidegger or Zettelkasten/Heidegger.md.');
 
@@ -173,10 +164,10 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema()) {
   }, async ({ limit, minLinks }) => respond(() => withGraph(graph => unresolvedLinks(graph, limit, minLinks))));
 
   server.registerTool('refresh_notes_snapshot', {
-    description: 'Rewrite the vault snapshot (/var/lib/knowledge/notes.json) that the DOI MCP literature maps read to show which notes cite a work. Reads the vault, writes only that file.',
+    description: 'Rewrite the vault snapshot (notes.json in KNOWLEDGE_DIR) that the DOI MCP literature maps read to show which notes cite a work. Reads the vault, writes only that file.',
     inputSchema: z.object({}),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
-  }, async () => respond(async () => writeSnapshot(vault.root)));
+  }, async () => respond(async () => writeSnapshot(vault, catalog)));
 
   server.registerPrompt('save_to_obsidian', {
     title: 'Save to Obsidian',
@@ -228,11 +219,11 @@ Show me the note before writing it. Then save it with write_note in Zettelkasten
   }, async ({ path, destination, expectedVersion }) => respond(async () => {
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
-    const issues = inScope(destination, schema) && !inScope(path, schema) ? await checked(vault, schema, destination, current.content) : [];
+    const issues = inScope(destination, schema) && !inScope(path, schema) ? await checked(catalog, schema, destination, current.content) : [];
     // Plan every link rewrite before touching anything, so a failure cannot leave the move half done.
     const oldName = baseName(path), newName = baseName(destination);
     const plan: { path: string; content: string; version: string }[] = [];
-    let scan = { notes: [] as { path: string; content: string; version: string }[], skipped: [] as { path: string; reason: string }[], truncated: false };
+    let scan = { notes: [] as CatalogNote[], skipped: [] as { path: string; reason: string }[], truncated: false };
     let ambiguous = false;
     if (oldName.toLowerCase() !== newName.toLowerCase()) {
       scan = await readAll();
@@ -275,7 +266,7 @@ Show me the note before writing it. Then save it with write_note in Zettelkasten
     const current = await vault.read(path);
     if (current.version !== expectedVersion) throw new Error('Version conflict. Read the note again.');
     const content = appendText(current.content, text, heading);
-    const issues = await checked(vault, schema, path, content);
+    const issues = await checked(catalog, schema, path, content);
     return { ...(await vault.write(path, content, expectedVersion)), issues };
   }));
 
@@ -350,7 +341,8 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
     app.get(['/oauth-resource-metadata', '/.well-known/oauth-protected-resource/obsidian-mcp'], (_request, response) => { response.json(oauth.resourceMetadata); });
     app.get(['/oauth-server-metadata', '/.well-known/oauth-authorization-server/obsidian-auth'], (_request, response) => { response.json(oauth.metadata); });
   }
-  const handler = createMcpHandler(() => createServer(vault));
+  const catalog = new Catalog(vault);
+  const handler = createMcpHandler(() => createServer(vault, undefined, catalog));
   const nodeHandler = toNodeHandler(handler);
   app.use('/mcp', (request, response, next) => {
     if (oauth) {

@@ -3,9 +3,12 @@
 // the vault. Each note: path, title, folder, frontmatter fields of the schema, the Zotero item
 // keys its `reference` links to (zotero://select or zotero://open-pdf), and outgoing note links.
 // Run by the MCP tool refresh_notes_snapshot (the "Refresh library and notes" button of the
-// Literature maps page) or by hand: node dist/snapshot.js. Env: OBSIDIAN_VAULT_PATH, KNOWLEDGE_DIR
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+// Literature maps page) or by hand: node dist/snapshot.js. Env: OBSIDIAN_VAULT_PATH,
+// OBSIDIAN_BACKUP_PATH, KNOWLEDGE_DIR.
+import * as fs from 'node:fs/promises';
 import path from 'node:path';
+import { Catalog, type CatalogNote } from './catalog.js';
+import { Vault } from './vault.js';
 import { isAttachment, noteName, wikilinks } from './markdown.js';
 import { splitNote } from './notes.js';
 
@@ -29,37 +32,27 @@ export function noteEntry(rel: string, content: string) {
   };
 }
 
-function* walk(root: string, dir = ''): Generator<string> {
-  for (const entry of readdirSync(path.join(root, dir), { withFileTypes: true })) {
-    if (entry.name.startsWith('.')) continue;
-    const rel = dir ? `${dir}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) yield* walk(root, rel);
-    else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) yield rel;
-  }
-}
-
-export function buildSnapshot(root: string) {
-  const notes = [];
-  for (const rel of walk(root)) {
-    const file = path.join(root, rel);
-    if (statSync(file).size > 1024 * 1024) continue;
-    notes.push(noteEntry(rel, readFileSync(file, 'utf8')));
-  }
-  return { generated: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), vault: path.basename(root), notes };
+export function buildSnapshot(root: string, notes: CatalogNote[]) {
+  return {
+    generated: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), vault: path.basename(root),
+    notes: notes.map(note => noteEntry(note.path, note.content))
+  };
 }
 
 // Writes notes.json atomically, readable by group (the services in group `knowledge`).
-export function writeSnapshot(root: string, outDir = process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge') {
-  mkdirSync(outDir, { recursive: true });
-  const snap = buildSnapshot(root);
+export async function writeSnapshot(vault: Vault, catalog: Catalog, outDir = process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge') {
+  await fs.mkdir(outDir, { recursive: true });
+  const snap = buildSnapshot(vault.root, (await catalog.scan()).notes);
   const out = path.join(outDir, 'notes.json');
-  writeFileSync(`${out}.tmp`, JSON.stringify(snap), { mode: 0o640 });
-  renameSync(`${out}.tmp`, out);
+  await fs.writeFile(`${out}.tmp`, JSON.stringify(snap), { mode: 0o640 });
+  await fs.rename(`${out}.tmp`, out);
   return { status: 'written', notes: snap.notes.length, linked_to_zotero: snap.notes.filter(n => n.zotero_keys.length).length, generated: snap.generated };
 }
 
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
   const root = process.env.OBSIDIAN_VAULT_PATH;
-  if (!root) throw new Error('Set OBSIDIAN_VAULT_PATH.');
-  console.log(writeSnapshot(root));
+  const backups = process.env.OBSIDIAN_BACKUP_PATH;
+  if (!root || !backups) throw new Error('Set OBSIDIAN_VAULT_PATH and OBSIDIAN_BACKUP_PATH.');
+  const vault = new Vault(root, backups);
+  console.log(await writeSnapshot(vault, new Catalog(vault)));
 }

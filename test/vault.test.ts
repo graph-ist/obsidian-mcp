@@ -16,7 +16,7 @@ test('note lifecycle, backups, conflicts and confinement', async () => {
     await assert.rejects(vault.write('Notes/hello.md', 'stale', 'wrong'));
     const updated = await vault.write('Notes/hello.md', '# Updated', first.version);
     assert.ok(updated.backupId);
-    assert.equal((await vault.search('updated')).matches.length, 1);
+    assert.equal((await vault.read('Notes/hello.md')).content, '# Updated');
     await vault.write('target.md', 'Existing');
     await assert.rejects(vault.move('Notes/hello.md', 'target.md', updated.version));
     assert.equal((await vault.read('target.md')).content, 'Existing');

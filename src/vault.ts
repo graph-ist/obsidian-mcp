@@ -86,6 +86,13 @@ export class Vault {
     return { path: name, content, version: createHash('sha256').update(buffer).digest('hex') };
   }
 
+  // Identity of the file's current bytes without reading them: mtime and size can be set by a
+  // sync client, ctime cannot, so together they change with every write.
+  async stamp(name: string): Promise<string> {
+    const stat = await fs.stat(await this.resolve(name));
+    return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+  }
+
   private async snapshot(name: string, content: string) {
     await fs.mkdir(this.backups, { recursive: true, mode: 0o700 });
     const backupId = `${Date.now()}-${randomUUID()}.json`;
@@ -170,32 +177,5 @@ export class Vault {
         if (page.nextOffset === null) break;
       }
     }
-  }
-
-  async search(query: string, limit = 20) {
-    const matches: { path: string; snippet: string }[] = [];
-    const folders = [''];
-    let scanned = 0;
-    while (folders.length && scanned < 2000) {
-      const folder = folders.shift()!;
-      for (let offset = 0; ; offset += 200) {
-        const page = await this.list(folder, 200, offset);
-        for (const entry of page.entries) {
-          if (entry.type === 'directory') {
-            folders.push(entry.path);
-          } else {
-            if (++scanned > 2000) return { matches, scanned: 2000, truncated: true };
-            const note = await this.read(entry.path);
-            const index = note.content.toLowerCase().indexOf(query.toLowerCase());
-            if (index >= 0 || entry.path.toLowerCase().includes(query.toLowerCase())) {
-              matches.push({ path: entry.path, snippet: note.content.slice(Math.max(0, index - 80), Math.max(0, index) + 240) });
-              if (matches.length >= limit) return { matches, scanned, truncated: true };
-            }
-          }
-        }
-        if (page.nextOffset === null) break;
-      }
-    }
-    return { matches, scanned, truncated: folders.length > 0 };
   }
 }
