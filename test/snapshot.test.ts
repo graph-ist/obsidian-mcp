@@ -10,3 +10,11 @@ test('snapshot entry: zotero keys from reference links, links outside code', () 
   assert.equal(e.title, 'Parole nel vuoto (Loos)');
   assert.deepEqual(e.cssclasses, ['330304-design-theory']);
 });
+
+test('snapshot carries the schema version the DOI MCP checks', async () => {
+  const { buildSnapshot, SCHEMA_VERSION } = await import('../src/snapshot.js');
+  const snap = buildSnapshot('/vault/Knowledge Graph', [{ path: 'A.md', content: '# A', version: 'v' }]);
+  assert.equal(SCHEMA_VERSION, 1);
+  assert.equal(snap.schema_version, 1);
+  assert.equal(snap.notes.length, 1);
+});

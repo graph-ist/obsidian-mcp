@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- `notes.json` porta `schema_version: 1`; il DOI MCP rifiuta una versione maggiore di quella che legge invece di interpretarla male. Si incrementa solo se un campo cambia significato o sparisce.
+- `save_to_obsidian`: il prompt chiede di leggere la fonte con l'MCP Zotero prima di scrivere (`get_annotations` per My Observations, `get_outline` e `get_fulltext` a pagine per Claude's Additions, `format_citations` per `reference`), di proporre `annotate_pdf` per gli elementi di To Verify confermati, e dopo il salvataggio di chiamare `refresh_notes_snapshot` e `map_mark` se il lavoro è in una mappa.
+
 ## 0.3.0
 
 Revisione della progettazione dei tool e dell'infrastruttura di lettura, a partire

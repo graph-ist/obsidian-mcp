@@ -12,6 +12,10 @@ import { Vault } from './vault.js';
 import { isAttachment, noteName, wikilinks } from './markdown.js';
 import { splitNote } from './notes.js';
 
+// Bumped when a field changes meaning or is removed; readers (the DOI MCP's knowledge.py) refuse a
+// newer major version instead of misreading it. Adding a field does not bump it.
+export const SCHEMA_VERSION = 1;
+
 const ZOTERO_KEY = /zotero:\/\/(?:select\/library\/items|open-pdf\/library\/items)\/([A-Z0-9]{8})/g;
 
 const list = (value: unknown): string[] =>
@@ -34,6 +38,7 @@ export function noteEntry(rel: string, content: string) {
 
 export function buildSnapshot(root: string, notes: CatalogNote[]) {
   return {
+    schema_version: SCHEMA_VERSION,
     generated: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), vault: path.basename(root),
     notes: notes.map(note => noteEntry(note.path, note.content))
   };

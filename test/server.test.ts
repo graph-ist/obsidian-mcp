@@ -67,7 +67,7 @@ test('the save_to_obsidian prompt comes from prompts/ and takes its source argum
   const result = await prompts.save_to_obsidian.handler({ source: 'Being and Time' }, {});
   const text = result.messages[0].content.text as string;
   assert.match(text, /^Write or update the Obsidian note for: Being and Time/);
-  assert.match(text, /report any validator warnings\.$/);
+  assert.match(text, /map_mark it as read\.$/);
   assert.ok(!text.includes('{{source}}'));
   await fs.rm(temporary, { recursive: true, force: true });
 });
