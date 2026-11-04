@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- Schede di concetto: campo `relations` (relazioni tipizzate tra letture: `from`, `type` tra `adopts`, `revises`, `rejects`, `applies`, `extends`, `contrasts`, `to`, `evidence` con pagina o `interpretation`) validato dallo schema; sezioni `Readings` e `Relations`; una nota `kind: concept` senza Definition, senza Readings/Relations o senza relazioni dà un avviso.
+- `concept_relations`: le relazioni di tutte le schede, filtrabili per concetto, nota o tipo. Prompt `concept_card` (`prompts/concept.md`).
+- `notes.json` porta `relations` per nota.
+
 ## 0.4.0
 
 Incompatibile con 0.3.x

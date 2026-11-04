@@ -78,7 +78,8 @@ test('contract fixtures match what the snapshot writer produces (copied to the D
   const notes = [
     { path: 'Zettelkasten/Reading Notes/Designerly ways of knowing.md', version: 'v1', content: '---\nkind: reading\ncssclasses:\n  - 330304-design-theory\nrelated:\n  - "[[Schön]]"\naliases:\n  - design knowing\nreference:\n  - "[Cross (1982)](zotero://select/library/items/ZKEY0001)"\ntags:\n  - cited/thesis\n---\n#### Thesis\nDesign has its own ways of knowing.\n\n#### My Observations\nCross reads [[Schön]] charitably (p. 221).\n' },
     { path: 'Zettelkasten/Theses/Affordances are relational.md', version: 'v2', content: '---\nkind: thesis\ncssclasses:\n  - 500310-phenomenology\n---\n#### Position\nAffordances are relational.\n\n#### Supporters\n- [[Designerly ways of knowing]] (p. 3): x\n' },
-    { path: 'Maps/Design theory.md', version: 'v3', content: '# Design theory\n\n- Cross (1982). Designerly ways of knowing. · [Zotero](zotero://select/library/items/ZKEY0001)\n' }
+    { path: 'Maps/Design theory.md', version: 'v3', content: '# Design theory\n\n- Cross (1982). Designerly ways of knowing. · [Zotero](zotero://select/library/items/ZKEY0001)\n' },
+    { path: 'Zettelkasten/Concepts/Affordance.md', version: 'v4', content: '---\nkind: concept\nrelations:\n  - from: "[[Norman]]"\n    type: revises\n    to: "[[Gibson]]"\n    evidence: "p. 9"\n---\n#### Definition\nx\n#### Relations\n- [[Norman]] revises [[Gibson]] (p. 9)\n' }
   ];
   const snap = buildSnapshot('/vault/Knowledge Graph', notes);
   const text = buildTextSnapshot('/vault/Knowledge Graph', notes);

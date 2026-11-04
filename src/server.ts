@@ -11,7 +11,7 @@ import { Catalog, type CatalogNote } from './catalog.js';
 import { appendText, matchesQuery, renameLinks } from './edit.js';
 import { noteName as baseName } from './markdown.js';
 import { backlinks, buildGraph, similarNotes, suggestLinks, unresolvedLinks } from './graph.js';
-import { inScope, loadSchema, patchFrontmatter, validateNote, type NoteSchema } from './notes.js';
+import { inScope, linkTarget, loadSchema, patchFrontmatter, relationsOf, splitNote, validateNote, type NoteSchema } from './notes.js';
 import { createOAuth, type OAuthOptions } from './oauth.js';
 import { writeSnapshot } from './snapshot.js';
 import { importReports } from './reports.js';
@@ -51,7 +51,7 @@ async function checked(catalog: Catalog, schema: NoteSchema, path: string, conte
 // release; {{source}} is replaced with the argument.
 export function loadPrompts(directory = new URL('../prompts/', import.meta.url)) {
   const read = (name: string) => readFileSync(new URL(`${name}.md`, directory), 'utf8').trim();
-  return { save_to_obsidian: read('save_to_obsidian'), argue: read('argue') };
+  return { save_to_obsidian: read('save_to_obsidian'), argue: read('argue'), concept: read('concept') };
 }
 
 export interface ServerOptions {
@@ -82,7 +82,7 @@ export function autoRefresh(vault: Vault, catalog: Catalog, delayMs: number) {
 }
 
 export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), catalog = new Catalog(vault), prompts = loadPrompts(), options: ServerOptions = {}) {
-  const server = new McpServer({ name: 'obsidian-vault', version: '0.4.0' });
+  const server = new McpServer({ name: 'obsidian-vault', version: '0.5.0' });
   const delay = options.autoRefreshMs ?? (process.env.KNOWLEDGE_AUTO_REFRESH === 'false' ? false : 3000);
   if (delay !== false) vault.onChange = autoRefresh(vault, catalog, delay).schedule;
   const respond = respondIn(vault.root);
@@ -368,6 +368,42 @@ export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), ca
     return { total: matches.length, notes: matches.slice(0, limit), limited: matches.length > limit, ...extras(scan) };
   }));
 
+  server.registerTool('concept_relations', {
+    description: 'The typed relations recorded in concept notes (kind: concept): who adopts, revises, rejects, applies, extends or contrasts whose reading of a concept, each with its evidence (a page, or "interpretation"). Filter by concept (note title), by a note that appears as from or to, or by type. Use it to answer "who rejects X\'s reading of affordance" from the vault, not from memory.',
+    inputSchema: z.object({
+      concept: z.string().max(300).optional().describe('Title of a concept note (case-insensitive); omit for every concept.'),
+      note: z.string().max(300).optional().describe('A note title: relations where it is from or to.'),
+      type: z.string().max(40).optional().describe('One relation type.'),
+      limit: z.number().int().min(1).max(1000).default(200)
+    }),
+    outputSchema: z.object({
+      concepts: z.array(z.object({ path: z.string(), title: z.string(), relations: z.number().int() })),
+      relations: z.array(z.object({ concept: z.string(), from: z.string(), type: z.string(), to: z.string(), evidence: z.string().nullable() })),
+      total: z.number().int(), limited: z.boolean(), types: z.array(z.string()), ...scanExtras
+    }),
+    annotations: readOnly
+  }, async ({ concept, note, type, limit }) => respond(async () => {
+    const scan = await readAll('');
+    const concepts = [], relations = [];
+    for (const n of scan.notes) {
+      let fm; try { fm = splitNote(n.content).frontmatter; } catch { continue; }
+      if (!fm || fm.kind !== 'concept') continue;
+      const title = baseName(n.path);
+      if (concept && title.toLowerCase() !== concept.trim().toLowerCase()) continue;
+      const rels = relationsOf(fm).map(r => ({ concept: title, from: linkTarget(r.from) ?? r.from, type: r.type, to: linkTarget(r.to) ?? r.to, evidence: r.evidence }))
+        .filter(r => (!type || r.type === type) && (!note || [r.from, r.to].some(x => x.toLowerCase() === note.trim().toLowerCase())));
+      concepts.push({ path: n.path, title, relations: rels.length });
+      relations.push(...rels);
+    }
+    return { concepts, relations: relations.slice(0, limit), total: relations.length, limited: relations.length > limit, types: schema.relations?.types ?? [], ...extras(scan) };
+  }));
+
+  server.registerPrompt('concept_card', {
+    title: 'Concept card',
+    description: 'Build or update a concept note: the readings of a contested term by author, and the typed relations between them (adopts, revises, rejects, applies, extends, contrasts) with a page or "interpretation".',
+    argsSchema: z.object({ concept: z.string().min(1).describe('The term (affordance, embodiment, …) or the name of an existing concept note') })
+  }, ({ concept }) => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: prompts.concept.replace(/\{\{concept\}\}/g, concept) } }] }));
+
   server.registerTool('delete_note', {
     description: 'Remove a note from the synchronized vault, keeping a recovery copy outside it. Requires its read version. Ask the user before deleting.',
     inputSchema: z.object({ path: notePath, expectedVersion: version }),
@@ -407,7 +443,7 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
     const scan = await statusCatalog.scan();
     const notesFile = path.join(process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge', 'notes.json');
     const snapshot = await stat(notesFile).then(s => s.mtime.toISOString()).catch(() => null);
-    response.json({ service: 'obsidian-mcp', version: '0.4.0', notes: scan.notes.length, skipped: scan.skipped.length, truncated: scan.truncated, auth: oauthOptions ? 'oauth' : 'bearer', notes_snapshot: snapshot });
+    response.json({ service: 'obsidian-mcp', version: '0.5.0', notes: scan.notes.length, skipped: scan.skipped.length, truncated: scan.truncated, auth: oauthOptions ? 'oauth' : 'bearer', notes_snapshot: snapshot });
   });
   if (oauthOptions) {
     const relative = path.relative(vault.root, oauthOptions.stateDirectory);

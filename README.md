@@ -48,6 +48,7 @@ leggibili, senza cifratura end-to-end di Remotely Save.
 | `unresolved_links` | Wikilink verso note che non esistono, i più citati per primi |
 | `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note e riporta quali note ha aggiornato |
 | `delete_note` | Elimina dal vault dopo una copia recuperabile |
+| `concept_relations` | Le relazioni tipizzate registrate nelle note di concetto (`kind: concept`): chi adotta, rivede, rifiuta, applica, estende o contrappone la lettura di chi, con l'evidenza; filtri per concetto, nota o tipo |
 | `refresh_notes_snapshot` | Rigenera `notes.json` e `notes_text.json` in `KNOWLEDGE_DIR` per le mappe e la ricerca del DOI MCP (dopo ogni scrittura succede da sé pochi secondi dopo; `KNOWLEDGE_AUTO_REFRESH=false` lo disattiva); importa anche i report nuovi |
 | `import_reports` | Copia una volta sola in `Inbox/` (o `OBSIDIAN_INBOX_FOLDER`) i report Markdown che altri servizi lasciano in `KNOWLEDGE_DIR/reports` (il lavoro settimanale del DOI MCP); avviene da sé ogni ora |
 
@@ -61,7 +62,9 @@ nota che segue il template (vedi sotto) e la mostra prima di salvarla. Il testo 
 cambiare senza ricompilare, riavviando il servizio. `map_argument` (`prompts/argue.md`)
 costruisce o aggiorna una nota di tesi (`kind: thesis`), cioè un hub tra fonti con Position,
 Supporters, Objections e Replies, una riga per fonte con pagina, a partire dalle note di
-lettura e dai testi in Zotero.
+lettura e dai testi in Zotero. `concept_card` (`prompts/concept.md`) costruisce o aggiorna una
+scheda di concetto (`kind: concept`): le letture di un termine conteso per autore e le relazioni
+tipizzate tra le letture nel campo `relations`.
 
 ### Limiti
 
@@ -96,8 +99,15 @@ collegare una singola nota conviene leggere e cercare nel testo.
 - `scope`: le cartelle soggette allo schema (`Zettelkasten/`, tranne `Zettelkasten/Da rivedere/`).
   Le note fuori scope si scrivono senza controlli.
 - `fields`: l'ordine dei campi, `kind` (facoltativo: `reading`, `person`, `concept`, `thesis`, `map`),
-  `cssclasses`, `subclasses`, `related`, `aliases`, `reference`, `tags`. Una nota con `kind: thesis`
-  deve avere la sezione Position e almeno una tra Supporters e Objections (avviso).
+  `cssclasses`, `subclasses`, `related`, `relations`, `aliases`, `reference`, `tags`. Una nota con `kind: thesis`
+  deve avere la sezione Position e almeno una tra Supporters e Objections (avviso); una con
+  `kind: concept` la sezione Definition e almeno una tra Readings e Relations.
+- `relations`: in una scheda di concetto, una voce per relazione tra due letture:
+  `{from: "[[Norman]]", type: revises, to: "[[Gibson]]", evidence: "p. 9"}`. `from` e `to` sono wikilink a
+  note esistenti (errore se non lo sono, avviso se la nota manca), `type` uno di `relations.types`
+  (`adopts`, `revises`, `rejects`, `applies`, `extends`, `contrasts`; errore altrimenti), `evidence` la pagina
+  in cui la relazione è detta o la parola `interpretation` quando è una lettura nostra (avviso se manca
+  o ha un'altra forma). `notes.json` porta le relazioni normalizzate.
 - `cssclasses.values`: i codici ANZSRC FoR 2020 a 6 cifre, con lo stesso slug dei tag `sub/` di
   Zotero (es. `500310-phenomenology`), al massimo 3 per nota. Ai valori elencati qui si aggiungono
   i tag `sub/` letti da `library.json` in `KNOWLEDGE_DIR` (l'istantanea dell'MCP Zotero): un codice

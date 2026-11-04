@@ -36,7 +36,7 @@ test('HTTP authentication, host checks and real MCP tools', async () => {
     assert.equal((await fetch(endpoint, { headers: { ...headers, Origin: 'https://untrusted.example' } })).status, 403);
     await client.connect(transport);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 16);
+    assert.equal(listed.tools.length, 17);
     const created = await client.callTool({ name: 'write_note', arguments: { path: 'Hello.md', content: '# Hello MCP' } });
     assert.equal(created.isError, undefined);
     const rejected = await client.callTool({ name: 'write_note', arguments: { path: 'Zettelkasten/Bad.md', content: '# no frontmatter' } });
@@ -85,5 +85,16 @@ test('the map_argument prompt takes the thesis', async () => {
   const text = result.messages[0].content.text as string;
   assert.match(text, /^Build or update the thesis note for: Affordances are relational/);
   assert.ok(text.includes('Supporters') && text.includes('Objections') && !text.includes('{{thesis}}'));
+  await fs.rm(temporary, { recursive: true, force: true });
+});
+
+test('the concept_card prompt takes the concept', async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidian-prompt-'));
+  const vault = new Vault(path.join(temporary, 'vault'), path.join(temporary, 'backups'));
+  await fs.mkdir(vault.root);
+  const prompts = (createServer(vault) as unknown as { _registeredPrompts: Record<string, { handler: Function }> })._registeredPrompts;
+  const text = (await prompts.concept_card.handler({ concept: 'affordance' }, {})).messages[0].content.text as string;
+  assert.match(text, /^Build or update the concept note for: affordance/);
+  assert.ok(text.includes('relations:') && text.includes('interpretation') && !text.includes('{{concept}}'));
   await fs.rm(temporary, { recursive: true, force: true });
 });

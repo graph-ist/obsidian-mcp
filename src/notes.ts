@@ -11,8 +11,29 @@ export interface NoteSchema {
   aliases: { min: number };
   template: { headings: string[]; exclude: string[] };
   // Optional note kinds; a thesis note (argument hub) must have Position and Supporters or Objections.
-  kind?: { values: string[]; thesis: { required_headings: string[]; one_of: string[] } };
+  kind?: { values: string[]; thesis: { required_headings: string[]; one_of: string[] }; concept?: { required_headings: string[]; one_of: string[] } };
+  // Typed relations between readings of a concept, in the frontmatter of a concept note.
+  relations?: { types: string[]; evidence?: string };
 }
+
+export interface Relation { from: string; type: string; to: string; evidence: string | null }
+
+const WIKILINK = /^\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/;
+const EVIDENCE = /^(interpretation|(?:pp?\.|§|ch\.|sec\.)\s*\S.*)$/i;
+
+// The relations of a note as written: each entry {from, type, to, evidence}; malformed entries are kept with
+// what they have, so validation can name them.
+export function relationsOf(frontmatter: Frontmatter): Relation[] {
+  const raw = frontmatter.relations;
+  if (!Array.isArray(raw)) return [];
+  return raw.map(r => {
+    const o = (r && typeof r === 'object' && !Array.isArray(r)) ? r as Record<string, unknown> : {};
+    const str = (v: unknown) => v === undefined || v === null ? '' : String(v);
+    return { from: str(o.from), type: str(o.type), to: str(o.to), evidence: o.evidence === undefined || o.evidence === null ? null : str(o.evidence) };
+  });
+}
+
+export const linkTarget = (link: string) => WIKILINK.exec(link.trim())?.[1].trim() ?? null;
 
 export function loadSchema(file = new URL('../schema/note-schema.json', import.meta.url)): NoteSchema {
   return JSON.parse(readFileSync(file, 'utf8')) as NoteSchema;
@@ -120,6 +141,25 @@ export function validateNote(path: string, content: string, schema: NoteSchema, 
   }
   const tags = asList(frontmatter.tags);
   if (tags === null) error('tags must be a list.', 'tags');
+  if (frontmatter.relations !== undefined && frontmatter.relations !== null) {
+    if (!Array.isArray(frontmatter.relations)) error('relations must be a list of entries: - {from: "[[Note A]]", type: adopts, to: "[[Note B]]", evidence: "p. 12"}.', 'relations');
+    else {
+      const types = new Set(schema.relations?.types ?? []);
+      relationsOf(frontmatter).forEach((rel, i) => {
+        const where = `relations[${i + 1}]`;
+        const from = linkTarget(rel.from), to = linkTarget(rel.to);
+        if (!from || !to) error(`${where}: from and to must be wikilinks to notes.`, 'relations');
+        else {
+          if (from.toLowerCase() === to.toLowerCase()) warning(`${where}: from and to are the same note (${from}).`, 'relations');
+          if (titles) for (const t of [from, to]) if (!titles.has(t.toLowerCase())) warning(`${where}: no note named ${t}.`, 'relations');
+        }
+        if (!types.has(rel.type)) error(`${where}: type must be one of ${[...types].join(', ')}: ${rel.type || '(missing)'}.`, 'relations');
+        if (!rel.evidence) warning(`${where}: give evidence, a page ("p. 12") or the word "interpretation".`, 'relations');
+        else if (!EVIDENCE.test(rel.evidence)) warning(`${where}: evidence should be a page ("p. 12", "§ 2") or "interpretation": ${rel.evidence}.`, 'relations');
+      });
+    }
+  }
+
   const kind = frontmatter.kind;
   if (kind !== undefined && kind !== null) {
     const values = schema.kind?.values ?? [];
@@ -132,10 +172,12 @@ export function validateNote(path: string, content: string, schema: NoteSchema, 
   if (!under(path, schema.template.exclude)) for (const match of maskCode(body).matchAll(/^####\s+(.+?)\s*$/gm)) {
     if (!allowed.has(match[1])) warning(`Heading not in the template: ${match[1]}. Use a template section, or ##### for a subsection.`);
   }
-  if (kind === 'thesis' && schema.kind) {
+  const rule = kind === 'thesis' ? schema.kind?.thesis : kind === 'concept' ? schema.kind?.concept : undefined;
+  if (rule) {
     const present = new Set([...maskCode(body).matchAll(/^####\s+(.+?)\s*$/gm)].map(m => m[1]));
-    for (const heading of schema.kind.thesis.required_headings) if (!present.has(heading)) warning(`A thesis note needs a #### ${heading} section.`, 'kind');
-    if (!schema.kind.thesis.one_of.some(h => present.has(h))) warning(`A thesis note needs at least one of: ${schema.kind.thesis.one_of.join(', ')}.`, 'kind');
+    for (const heading of rule.required_headings) if (!present.has(heading)) warning(`A ${kind} note needs a #### ${heading} section.`, 'kind');
+    if (!rule.one_of.some(h => present.has(h))) warning(`A ${kind} note needs at least one of: ${rule.one_of.join(', ')}.`, 'kind');
+    if (kind === 'concept' && !relationsOf(frontmatter).length) warning('A concept note records the relations between its readings in the relations field.', 'kind');
   }
   return issues;
 }

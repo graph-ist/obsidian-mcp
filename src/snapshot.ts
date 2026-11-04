@@ -10,7 +10,7 @@ import path from 'node:path';
 import { Catalog, type CatalogNote } from './catalog.js';
 import { Vault } from './vault.js';
 import { isAttachment, noteName, wikilinks } from './markdown.js';
-import { splitNote } from './notes.js';
+import { linkTarget, relationsOf, splitNote } from './notes.js';
 
 // Bumped when a field changes meaning or is removed; readers (the DOI MCP's knowledge.py) refuse a
 // newer major version instead of misreading it. Adding a field does not bump it.
@@ -32,6 +32,7 @@ export function noteEntry(rel: string, content: string) {
     cssclasses: list(frontmatter.cssclasses), subclasses: list(frontmatter.subclasses),
     tags: list(frontmatter.tags), aliases: list(frontmatter.aliases), related: list(frontmatter.related),
     kind: typeof frontmatter.kind === 'string' ? frontmatter.kind : null,
+    relations: relationsOf(frontmatter).map(r => ({ from: linkTarget(r.from) ?? r.from, type: r.type, to: linkTarget(r.to) ?? r.to, evidence: r.evidence })),
     zotero_keys: [...new Set(references.flatMap(r => [...r.matchAll(ZOTERO_KEY)].map(m => m[1])))],
     links
   };

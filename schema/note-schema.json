@@ -12,6 +12,7 @@
   "cssclasses",
   "subclasses",
   "related",
+  "relations",
   "aliases",
   "reference",
   "tags"
@@ -233,7 +234,9 @@
    "Position",
    "Supporters",
    "Objections",
-   "Replies"
+   "Replies",
+   "Readings",
+   "Relations"
   ],
   "exclude": [
    "Zettelkasten/Storia della filosofia/"
@@ -255,6 +258,26 @@
     "Supporters",
     "Objections"
    ]
+  },
+  "concept": {
+   "required_headings": [
+    "Definition"
+   ],
+   "one_of": [
+    "Readings",
+    "Relations"
+   ]
   }
+ },
+ "relations": {
+  "types": [
+   "adopts",
+   "revises",
+   "rejects",
+   "applies",
+   "extends",
+   "contrasts"
+  ],
+  "evidence": "a page ('p. 12', 'pp. 3-4', '§ 2') or the word 'interpretation'"
  }
 }

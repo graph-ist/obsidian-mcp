@@ -182,3 +182,19 @@ test('import_reports copies each report once into the inbox and the snapshot wri
     if (previous === undefined) delete process.env.KNOWLEDGE_DIR; else process.env.KNOWLEDGE_DIR = previous;
   }
 });
+
+test('concept_relations lists the typed relations of concept notes, filtered by concept, note or type', async () => {
+  const { call } = await setup({
+    'Zettelkasten/Concepts/Affordance.md': '---\nkind: concept\nrelations:\n  - from: "[[Norman]]"\n    type: revises\n    to: "[[Gibson]]"\n    evidence: "p. 9"\n  - from: "[[Gaver]]"\n    type: extends\n    to: "[[Norman]]"\n    evidence: interpretation\n---\n#### Definition\nx\n#### Relations\n- [[Norman]] revises [[Gibson]] (p. 9)\n',
+    'Zettelkasten/Concepts/Embodiment.md': '---\nkind: concept\nrelations:\n  - from: "[[Dourish]]"\n    type: applies\n    to: "[[Merleau-Ponty]]"\n    evidence: "p. 102"\n---\n#### Definition\ny\n#### Readings\nz\n',
+    'Zettelkasten/Reading Notes/Norman.md': '---\nkind: reading\n---\nnot a concept'
+  });
+  const all = await call('concept_relations', {});
+  assert.deepEqual(all.data.concepts.map((c: { title: string; relations: number }) => [c.title, c.relations]), [['Affordance', 2], ['Embodiment', 1]]);
+  assert.equal(all.data.total, 3);
+  assert.deepEqual(all.data.types, ['adopts', 'revises', 'rejects', 'applies', 'extends', 'contrasts']);
+  const norman = await call('concept_relations', { note: 'norman' });
+  assert.deepEqual(norman.data.relations.map((r: { from: string; type: string; to: string }) => `${r.from} ${r.type} ${r.to}`), ['Norman revises Gibson', 'Gaver extends Norman']);
+  assert.deepEqual((await call('concept_relations', { concept: 'embodiment', type: 'applies' })).data.relations[0], { concept: 'Embodiment', from: 'Dourish', type: 'applies', to: 'Merleau-Ponty', evidence: 'p. 102' });
+  assert.equal((await call('concept_relations', { type: 'rejects' })).data.total, 0);
+});

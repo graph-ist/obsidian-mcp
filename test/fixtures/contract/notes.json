@@ -21,6 +21,7 @@
     "[[Schön]]"
    ],
    "kind": "reading",
+   "relations": [],
    "zotero_keys": [
     "ZKEY0001"
    ],
@@ -40,6 +41,7 @@
    "aliases": [],
    "related": [],
    "kind": "thesis",
+   "relations": [],
    "zotero_keys": [],
    "links": [
     "Designerly ways of knowing"
@@ -55,8 +57,33 @@
    "aliases": [],
    "related": [],
    "kind": null,
+   "relations": [],
    "zotero_keys": [],
    "links": []
+  },
+  {
+   "path": "Zettelkasten/Concepts/Affordance.md",
+   "title": "Affordance",
+   "folder": "Zettelkasten/Concepts",
+   "cssclasses": [],
+   "subclasses": [],
+   "tags": [],
+   "aliases": [],
+   "related": [],
+   "kind": "concept",
+   "relations": [
+    {
+     "from": "Norman",
+     "type": "revises",
+     "to": "Gibson",
+     "evidence": "p. 9"
+    }
+   ],
+   "zotero_keys": [],
+   "links": [
+    "Norman",
+    "Gibson"
+   ]
   }
  ]
 }

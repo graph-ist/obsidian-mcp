@@ -116,3 +116,27 @@ test('kind: thesis notes need Position and Supporters or Objections', async () =
   assert.equal(messages(base + '#### Supporters\n- [[X]]\n').length, 1);
   assert.match(messages('---\nkind: essay\n---\n#### Thesis\nx\n')[0], /kind must be one of/);
 });
+
+test('relations: typed, with wikilinks and evidence; concept notes need Definition and Readings or Relations', async () => {
+  const { validateNote, loadSchema, relationsOf } = await import('../src/notes.js');
+  const schema = loadSchema();
+  const base = (rels: string) => `---\nkind: concept\ncssclasses:\n  - 500310-phenomenology\naliases:\n  - a\n  - b\n  - c\nrelations:\n${rels}---\n#### Definition\nx\n#### Readings\n##### Gibson\ny\n`;
+  const titles = new Set(['gibson', 'norman']);
+  const msgs = (content: string, field: string) => validateNote('Zettelkasten/Concepts/Affordance.md', content, schema, titles).filter(i => i.field === field).map(i => `${i.level}: ${i.message}`);
+  const good = base('  - from: "[[Norman]]"\n    type: revises\n    to: "[[Gibson]]"\n    evidence: "p. 9"\n');
+  assert.deepEqual(msgs(good, 'relations'), []);
+  assert.deepEqual(msgs(good, 'kind'), []);
+  const bad = base('  - from: Norman\n    type: likes\n    to: "[[Gibson]]"\n  - from: "[[Gibson]]"\n    type: adopts\n    to: "[[Gibson]]"\n    evidence: somewhere\n  - from: "[[Heidegger]]"\n    type: rejects\n    to: "[[Gibson]]"\n    evidence: interpretation\n');
+  const m = msgs(bad, 'relations');
+  assert.ok(m.some(x => x.startsWith('error: relations[1]: from and to must be wikilinks')));
+  assert.ok(m.some(x => x.startsWith('error: relations[1]: type must be one of')));
+  assert.ok(m.some(x => x.startsWith('warning: relations[1]: give evidence')));
+  assert.ok(m.some(x => x.includes('relations[2]: from and to are the same note')));
+  assert.ok(m.some(x => x.includes('relations[2]: evidence should be a page')));
+  assert.ok(m.some(x => x.includes('relations[3]: no note named Heidegger')));
+  assert.equal(m.filter(x => x.includes('relations[3]')).length, 1);
+  assert.deepEqual(relationsOf({ relations: [{ from: '[[A]]', type: 'adopts', to: '[[B]]' }] }), [{ from: '[[A]]', type: 'adopts', to: '[[B]]', evidence: null }]);
+  const noRel = '---\nkind: concept\n---\n#### Definition\nx\n';
+  assert.ok(msgs(noRel, 'kind').some(x => x.includes('needs at least one of: Readings, Relations')) && msgs(noRel, 'kind').some(x => x.includes('relations field')));
+  assert.ok(msgs('---\nrelations: nope\n---\n', 'relations')[0].startsWith('error: relations must be a list'));
+});
