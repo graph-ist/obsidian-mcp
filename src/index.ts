@@ -8,7 +8,8 @@ const backups = process.env.OBSIDIAN_BACKUP_PATH;
 if (!root || !backups) throw new Error('Set OBSIDIAN_VAULT_PATH and OBSIDIAN_BACKUP_PATH.');
 if (!(await fs.stat(root)).isDirectory()) throw new Error('Vault path must be an existing directory.');
 await fs.access(root, fs.constants.R_OK | fs.constants.W_OK);
-const vault = new Vault(root, backups);
+const retention = (name: string) => process.env[name] === undefined ? undefined : Number(process.env[name]);
+const vault = new Vault(root, backups, { keepPerNote: retention('OBSIDIAN_BACKUP_KEEP'), maxAgeDays: retention('OBSIDIAN_BACKUP_DAYS') });
 
 if (process.argv.includes('--stdio')) {
   serveStdio(() => createServer(vault));

@@ -10,7 +10,8 @@
     "build": "tsc",
     "test": "tsx --test test/*.test.ts",
     "start": "node --env-file=.env dist/index.js",
-    "start:stdio": "node --env-file=.env dist/index.js --stdio"
+    "start:stdio": "node --env-file=.env dist/index.js --stdio",
+    "backups": "node --env-file=.env dist/backups.js"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.2",

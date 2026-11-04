@@ -2,10 +2,22 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 
+export interface Retention { keepPerNote: number; maxAgeDays: number }
+
+// Backup file names: <timestamp>-<16 hex of sha256(path)>-<uuid>.json. Files written before the
+// hash was added (<timestamp>-<uuid>.json) are pruned by age only.
+const BACKUP_NAME = /^(\d+)-(?:([a-f0-9]{16})-)?[a-f0-9-]{36}\.json$/;
+const pathHash = (name: string) => createHash('sha256').update(name).digest('hex').slice(0, 16);
+
 export class Vault {
   private pending: Promise<unknown> = Promise.resolve();
+  readonly retention: Retention;
 
-  constructor(readonly root: string, readonly backups: string) {
+  constructor(readonly root: string, readonly backups: string, retention: Partial<Retention> = {}) {
+    this.retention = { keepPerNote: retention.keepPerNote ?? 20, maxAgeDays: retention.maxAgeDays ?? 90 };
+    for (const value of Object.values(this.retention)) {
+      if (!(value > 0)) throw new Error('Backup retention values must be positive numbers (Infinity to disable).');
+    }
     if (!path.isAbsolute(root) || !path.isAbsolute(backups)) {
       throw new Error('Vault and backup paths must be absolute.');
     }
@@ -95,11 +107,46 @@ export class Vault {
 
   private async snapshot(name: string, content: string) {
     await fs.mkdir(this.backups, { recursive: true, mode: 0o700 });
-    const backupId = `${Date.now()}-${randomUUID()}.json`;
+    const backupId = `${Date.now()}-${pathHash(name)}-${randomUUID()}.json`;
     await fs.writeFile(path.join(this.backups, backupId), JSON.stringify({ path: name, content }), {
       flag: 'wx', mode: 0o600
     });
+    await this.prune(name).catch(() => undefined); // a failed cleanup must not fail the write
     return backupId;
+  }
+
+  // Deletes backups older than maxAgeDays, and all but the newest keepPerNote of this note.
+  private async prune(name: string) {
+    const now = Date.now();
+    const oldest = now - this.retention.maxAgeDays * 86_400_000;
+    const mine: { id: string; time: number }[] = [];
+    for (const id of await fs.readdir(this.backups)) {
+      const match = BACKUP_NAME.exec(id);
+      if (!match) continue;
+      const time = Number(match[1]);
+      if (time < oldest) { await fs.rm(path.join(this.backups, id), { force: true }); continue; }
+      if (match[2] === pathHash(name)) mine.push({ id, time });
+    }
+    mine.sort((a, b) => b.time - a.time);
+    for (const { id } of mine.slice(this.retention.keepPerNote)) await fs.rm(path.join(this.backups, id), { force: true });
+  }
+
+  // Backups of one note, newest first. Files from before the path hash are matched by content.
+  async backupsOf(name: string): Promise<{ id: string; time: string; bytes: number }[]> {
+    const found: { id: string; time: string; bytes: number }[] = [];
+    for (const id of await fs.readdir(this.backups).catch(() => [] as string[])) {
+      const match = BACKUP_NAME.exec(id);
+      if (!match) continue;
+      const file = path.join(this.backups, id);
+      if (match[2] ? match[2] !== pathHash(name) : JSON.parse(await fs.readFile(file, 'utf8')).path !== name) continue;
+      found.push({ id, time: new Date(Number(match[1])).toISOString(), bytes: (await fs.stat(file)).size });
+    }
+    return found.sort((a, b) => b.id.localeCompare(a.id));
+  }
+
+  async backup(id: string): Promise<{ path: string; content: string }> {
+    if (!BACKUP_NAME.test(id)) throw new Error('Not a backup id.');
+    return JSON.parse(await fs.readFile(path.join(this.backups, id), 'utf8'));
   }
 
   async write(name: string, content: string, expectedVersion?: string) {
