@@ -473,15 +473,20 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
       oauth.gate(request, response, next);
       return;
     }
-    // The token travels only in the Authorization header: a token in the URL would end up in
-    // proxy logs and browser histories. Claude web sends headers from the connector's settings.
-    const supplied = request.headers.authorization ?? '';
+    // The token travels in the Authorization header: a token in the URL would end up in proxy
+    // logs and browser histories.
+    // Claude web's "Add custom connector" form has only a name and a URL: MCP_ALLOW_QUERY_TOKEN=true
+    // also accepts the token as ?token= (off by default).
+    const allowQuery = ['1', 'true', 'yes'].includes((process.env.MCP_ALLOW_QUERY_TOKEN ?? '').toLowerCase());
+    const { token: queryToken, ...otherQuery } = request.query;
+    const supplied = request.headers.authorization
+      ?? (allowQuery && typeof queryToken === 'string' ? `Bearer ${queryToken}` : '');
     if (!timingSafeEqual(expected, digest(supplied))) {
       response.setHeader('WWW-Authenticate', 'Bearer realm="obsidian-mcp"');
       response.status(401).json({ error: 'Bearer authentication required.' });
       return;
     }
-    if (Object.keys(request.query).length) {
+    if (Object.keys(allowQuery ? otherQuery : request.query).length) {
       response.status(400).json({ error: 'Query parameters are not supported.' });
       return;
     }

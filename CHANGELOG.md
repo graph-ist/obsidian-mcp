@@ -1,5 +1,9 @@
 # Changelog
 
+## Non pubblicata
+
+- `MCP_ALLOW_QUERY_TOKEN=true`: il token è accettato anche come `?token=` nell'URL, per il modulo dei connettori di Claude web che ha solo nome e URL. Spento per default; gli altri parametri nella query restano rifiutati.
+
 ## 0.5.0
 
 - Schede di concetto: campo `relations` (relazioni tipizzate tra letture: `from`, `type` tra `adopts`, `revises`, `rejects`, `applies`, `extends`, `contrasts`, `to`, `evidence` con pagina o `interpretation`) validato dallo schema; sezioni `Readings` e `Relations`; una nota `kind: concept` senza Definition, senza Readings/Relations o senza relazioni dà un avviso.

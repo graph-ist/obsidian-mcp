@@ -27,9 +27,17 @@ test('HTTP authentication, host checks and real MCP tools', async () => {
   try {
     assert.equal((await fetch(endpoint, { method: 'POST' })).status, 401);
     assert.equal((await fetch(endpoint, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
-    // a token in the URL is never accepted, with or without a header
+    // a token in the URL is not accepted by default...
     assert.equal((await fetch(`${endpoint}?token=${token}`)).status, 401);
     assert.equal((await fetch(`${endpoint}?x=1`, { headers })).status, 400);
+    // ...unless MCP_ALLOW_QUERY_TOKEN is set (Claude web's connector form has only a URL)
+    process.env.MCP_ALLOW_QUERY_TOKEN = 'true';
+    const init = { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '1' } } }) };
+    assert.equal((await fetch(`${endpoint}?token=${token}`, init)).status, 200);
+    assert.equal((await fetch(`${endpoint}?token=wrong`, init)).status, 401);
+    assert.equal((await fetch(`${endpoint}?token=${token}&x=1`, init)).status, 400);
+    delete process.env.MCP_ALLOW_QUERY_TOKEN;
     const status = await fetch(`http://127.0.0.1:${address.port}/status`);
     assert.equal(status.status, 200);
     assert.deepEqual(Object.keys(await status.json()).sort(), ['auth', 'notes', 'notes_snapshot', 'service', 'skipped', 'truncated', 'version']);

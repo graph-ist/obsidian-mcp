@@ -9,8 +9,10 @@ PKCE S256, consenso esplicito, access token di un'ora e rinnovo automatico.
 È la dipendenza più grande del progetto e l'unica superficie esposta a Internet:
 esiste perché i connettori di Claude web non inviavano header personalizzati.
 La modalità a token statico resta disponibile: il token viaggia solo nell'header
-`Authorization: Bearer` (in Claude web, in *Request headers* del connettore); un token
-nell'URL viene rifiutato.
+`Authorization: Bearer`; un token nell'URL viene rifiutato, a meno di impostare
+`MCP_ALLOW_QUERY_TOKEN=true`. Serve se si usa il token statico con Claude web, il cui modulo
+dei connettori ha solo nome e URL: l'URL diventa `https://host/obsidian-mcp?token=<MCP_TOKEN>`.
+Gli altri parametri nella query restano rifiutati.
 
 Le modifiche per versione sono in [CHANGELOG.md](CHANGELOG.md), le proposte di sviluppo in
 [ROADMAP.md](ROADMAP.md). Le procedure per una macchina specifica (installazione, aggiornamento, passaggio a
