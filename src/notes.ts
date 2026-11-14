@@ -35,7 +35,7 @@ export function relationsOf(frontmatter: Frontmatter): Relation[] {
 
 export const linkTarget = (link: string) => WIKILINK.exec(link.trim())?.[1].trim() ?? null;
 
-export function loadSchema(file = new URL('../schema/note-schema.json', import.meta.url)): NoteSchema {
+export function loadSchema(file: string | URL = process.env.OBSIDIAN_SCHEMA_PATH || new URL('../schema/note-schema.json', import.meta.url)): NoteSchema {
   return JSON.parse(readFileSync(file, 'utf8')) as NoteSchema;
 }
 

@@ -1,0 +1,33 @@
+name: Release
+
+# Publishes to npm when a GitHub release is published (tag vX.Y.Z matching package.json).
+# Authentication uses npm trusted publishing (OIDC): configure it once on npmjs.com under
+# the package settings -> Trusted publisher -> GitHub Actions, workflow "release.yml".
+# No npm token is stored in the repository.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm install -g npm@^11.5.1
+      - name: Check that the tag matches package.json
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "${GITHUB_REF_NAME#v}" = "$v" ] || { echo "tag $GITHUB_REF_NAME != package.json $v"; exit 1; }
+      - run: npm ci
+      - run: npm publish

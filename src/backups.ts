@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Lists or prints the recovery copies of a note. Usage:
 //   node dist/backups.js list "Zettelkasten/Note.md"
 //   node dist/backups.js show <backup id>  > recovered.md

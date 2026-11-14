@@ -1,17 +1,53 @@
 {
-  "name": "obsidian-mcp",
-  "version": "0.5.0",
-  "private": true,
+  "name": "@graph-ist/obsidian-mcp",
+  "version": "0.6.0",
+  "description": "MCP server for a folder of Obsidian Markdown notes: versioned edits with backups, frontmatter schema, link-graph tools; stdio or HTTP with Bearer token or OAuth",
+  "license": "MIT",
+  "author": "graph-ist",
+  "homepage": "https://github.com/graph-ist/obsidian-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/graph-ist/obsidian-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/graph-ist/obsidian-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "obsidian",
+    "markdown",
+    "zettelkasten",
+    "notes",
+    "claude"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22"
+  },
+  "bin": {
+    "obsidian-mcp": "dist/index.js",
+    "obsidian-mcp-backups": "dist/backups.js"
+  },
+  "files": [
+    "dist/",
+    "schema/",
+    "prompts/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "tsc",
     "test": "tsx --test test/*.test.ts",
     "start": "node --env-file=.env dist/index.js",
     "start:stdio": "node --env-file=.env dist/index.js --stdio",
-    "backups": "node --env-file=.env dist/backups.js"
+    "backups": "node --env-file=.env dist/backups.js",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.2",
