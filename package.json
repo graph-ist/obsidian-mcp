@@ -47,7 +47,8 @@
     "start": "node --env-file=.env dist/index.js",
     "start:stdio": "node --env-file=.env dist/index.js --stdio",
     "backups": "node --env-file=.env dist/backups.js",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.2",
