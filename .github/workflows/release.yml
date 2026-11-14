@@ -4,6 +4,8 @@ name: Release
 # Authentication uses npm trusted publishing (OIDC): configure it once on npmjs.com under
 # the package settings -> Trusted publisher -> GitHub Actions, workflow "release.yml".
 # No npm token is stored in the repository.
+# Off until the repository variable NPM_PUBLISH is set to "true" (Settings -> Secrets and
+# variables -> Actions -> Variables): until then the package is installed from GitHub.
 
 on:
   release:
@@ -15,6 +17,7 @@ permissions:
 
 jobs:
   publish:
+    if: vars.NPM_PUBLISH == 'true'
     runs-on: ubuntu-latest
     environment: npm
     steps:

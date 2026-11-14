@@ -1,6 +1,5 @@
 # Obsidian MCP
 
-[![npm](https://img.shields.io/npm/v/@graph-ist/obsidian-mcp.svg)](https://www.npmjs.com/package/@graph-ist/obsidian-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 MCP server for an Obsidian vault, or any folder of Markdown notes. It works on the files directly,
@@ -25,7 +24,9 @@ OAuth, connecting to Claude, rollback) are in [deploy/RUNBOOK.md](deploy/RUNBOOK
 
 ## Installation
 
-The package is published on npm as [`@graph-ist/obsidian-mcp`](https://www.npmjs.com/package/@graph-ist/obsidian-mcp).
+The server installs straight from this GitHub repository: `npx -y github:graph-ist/obsidian-mcp` downloads it,
+compiles it once and starts it, with no clone and no npm account. The first start takes about a minute;
+later starts reuse the npx cache. For a fixed version add a tag: `github:graph-ist/obsidian-mcp#v0.6.0`.
 It needs two folders: the vault, and a folder **outside** the vault for the recovery copies made before
 every edit (see [Recovery copies](#recovery-copies)). Try it on a copy of the vault first and keep an
 independent backup: see [Limits and recovery](#limits-and-recovery).
@@ -39,7 +40,7 @@ In `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`,
   "mcpServers": {
     "obsidian": {
       "command": "npx",
-      "args": ["-y", "@graph-ist/obsidian-mcp", "--stdio"],
+      "args": ["-y", "github:graph-ist/obsidian-mcp", "--stdio"],
       "env": {
         "OBSIDIAN_VAULT_PATH": "/Users/you/Documents/MyVault",
         "OBSIDIAN_BACKUP_PATH": "/Users/you/.obsidian-mcp-backups",
@@ -60,7 +61,7 @@ claude mcp add obsidian \
   --env OBSIDIAN_VAULT_PATH="$HOME/Documents/MyVault" \
   --env OBSIDIAN_BACKUP_PATH="$HOME/.obsidian-mcp-backups" \
   --env KNOWLEDGE_AUTO_REFRESH=false \
-  -- npx -y @graph-ist/obsidian-mcp --stdio
+  -- npx -y github:graph-ist/obsidian-mcp --stdio
 ```
 
 ### HTTP
@@ -70,7 +71,7 @@ reverse proxy (Tailscale Funnel, Caddy, nginx) for Claude web and the apps:
 
 ```sh
 OBSIDIAN_VAULT_PATH=... OBSIDIAN_BACKUP_PATH=... MCP_TOKEN=$(openssl rand -hex 32) \
-PUBLIC_HOSTNAME=notes.example.org npx -y @graph-ist/obsidian-mcp
+PUBLIC_HOSTNAME=notes.example.org npx -y github:graph-ist/obsidian-mcp
 ```
 
 For a permanent installation (systemd unit, OAuth login, Tailscale Funnel) see [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
@@ -245,8 +246,8 @@ happens at every new copy and its failure does not block the write.
 No MCP tool exposes the copies. To list or read them (with `OBSIDIAN_VAULT_PATH` and `OBSIDIAN_BACKUP_PATH` set; from a clone, `npm run backups -- list ...`):
 
 ```sh
-npx -p @graph-ist/obsidian-mcp obsidian-mcp-backups list "Zettelkasten/Note.md"
-npx -p @graph-ist/obsidian-mcp obsidian-mcp-backups show <id> > recovered.md
+npx -p github:graph-ist/obsidian-mcp obsidian-mcp-backups list "Zettelkasten/Note.md"
+npx -p github:graph-ist/obsidian-mcp obsidian-mcp-backups show <id> > recovered.md
 ```
 
 To restore a note, stop the service, write the content to the verified path
@@ -279,9 +280,11 @@ For stdio: `npm run start:stdio`. The `.vscode/mcp.json` configuration asks for 
 paths of a local vault and of the backups; after the build you can start and debug
 the server from VS Code's MCP panel. It does not print notes or tokens to stdout.
 
-CI (`.github/workflows/ci.yml`) runs build and tests on Node 22 on every push. Releases are published to
-npm by `.github/workflows/release.yml` when a GitHub release tagged `vX.Y.Z` (matching `package.json`) is
-published, through npm trusted publishing: no npm token is stored in the repository.
+CI (`.github/workflows/ci.yml`) runs build and tests on Node 22 on every push. A release is a git tag `vX.Y.Z`
+matching `package.json`. The `prepare` script compiles TypeScript when npm installs from git, so `dist/`
+stays out of the repository. Publishing to the npm registry is prepared in `.github/workflows/release.yml`
+(npm trusted publishing, no token in the repository) and stays off until the repository variable
+`NPM_PUBLISH` is `true`.
 
 ## Limits and recovery
 
