@@ -1,128 +1,128 @@
 # Changelog
 
-## Non pubblicata
+## Unreleased
 
-- `MCP_ALLOW_QUERY_TOKEN=true`: il token è accettato anche come `?token=` nell'URL, per il modulo dei connettori di Claude web che ha solo nome e URL. Spento per default; gli altri parametri nella query restano rifiutati.
+- `MCP_ALLOW_QUERY_TOKEN=true`: the token is also accepted as `?token=` in the URL, for the Claude web connector form, which has only a name and a URL. Off by default; other query parameters are still rejected.
 
 ## 0.5.0
 
-- Schede di concetto: campo `relations` (relazioni tipizzate tra letture: `from`, `type` tra `adopts`, `revises`, `rejects`, `applies`, `extends`, `contrasts`, `to`, `evidence` con pagina o `interpretation`) validato dallo schema; sezioni `Readings` e `Relations`; una nota `kind: concept` senza Definition, senza Readings/Relations o senza relazioni dà un avviso.
-- `concept_relations`: le relazioni di tutte le schede, filtrabili per concetto, nota o tipo. Prompt `concept_card` (`prompts/concept.md`).
-- `notes.json` porta `relations` per nota.
+- Concept cards: `relations` field (typed relations between readings: `from`, `type` among `adopts`, `revises`, `rejects`, `applies`, `extends`, `contrasts`, `to`, `evidence` with a page or `interpretation`) validated by the schema; `Readings` and `Relations` sections; a `kind: concept` note without Definition, without Readings/Relations or without relations gives a warning.
+- `concept_relations`: the relations of all cards, filterable by concept, note or type. `concept_card` prompt (`prompts/concept.md`).
+- `notes.json` carries `relations` per note.
 
 ## 0.4.0
 
-Incompatibile con 0.3.x
-- Modalità a token statico: il token è accettato solo nell'header `Authorization: Bearer`; `?token=` nell'URL viene rifiutato. In Claude web il token va in *Request headers* del connettore.
+Incompatible with 0.3.x
+- Static-token mode: the token is accepted only in the `Authorization: Bearer` header; `?token=` in the URL is rejected. In Claude web the token goes in the connector's *Request headers*.
 
-Novità
-- Note di tesi: campo `kind` (facoltativo, valori `reading`, `person`, `concept`, `thesis`, `map`) e sezioni `Position`, `Supporters`, `Objections`, `Replies` nel template; una nota `kind: thesis` senza Position o senza Supporters/Objections dà un avviso. Prompt `map_argument` (`prompts/argue.md`) che costruisce l'hub dalle note di lettura e dai testi in Zotero.
-- `notes_text.json` in `KNOWLEDGE_DIR`: il corpo di ogni nota per la ricerca unica del DOI MCP (`search_everything`); `notes.json` porta `kind`.
-- `import_reports`: i report di altri servizi (`KNOWLEDGE_DIR/reports/*.md`) entrano una volta sola in `Inbox/` (`OBSIDIAN_INBOX_FOLDER`), ogni ora e a ogni `refresh_notes_snapshot`.
-- `GET /status` da loopback senza credenziali: versione, note, saltate, autenticazione, data dell'istantanea.
+What's new
+- Thesis notes: `kind` field (optional, values `reading`, `person`, `concept`, `thesis`, `map`) and `Position`, `Supporters`, `Objections`, `Replies` sections in the template; a `kind: thesis` note without Position or without Supporters/Objections gives a warning. `map_argument` prompt (`prompts/argue.md`) that builds the hub from the reading notes and the texts in Zotero.
+- `notes_text.json` in `KNOWLEDGE_DIR`: the body of every note for the DOI MCP's single search (`search_everything`); `notes.json` carries `kind`.
+- `import_reports`: reports from other services (`KNOWLEDGE_DIR/reports/*.md`) enter `Inbox/` (`OBSIDIAN_INBOX_FOLDER`) once only, every hour and at every `refresh_notes_snapshot`.
+- `GET /status` from loopback without credentials: version, notes, skipped, authentication, snapshot date.
 
 ## 0.3.2
 
-- I codici ANZSRC ammessi in `cssclasses` sono quelli dello schema più i tag `sub/` di `library.json` in `KNOWLEDGE_DIR` (`src/vocabulary.ts`, cache per mtime): un codice usato in Zotero non va più copiato a mano nello schema. L'avviso dice di taggare l'item in Zotero oppure di aggiungere il codice allo schema.
-- Dopo ogni scrittura, spostamento o cancellazione riuscita il server rigenera `notes.json` pochi secondi dopo (`Vault.onChange`, `autoRefresh` in `src/server.ts`); gli errori finiscono nel log e mai nella risposta. `KNOWLEDGE_AUTO_REFRESH=false` lo disattiva; `createServer` accetta `autoRefreshMs`.
+- The ANZSRC codes allowed in `cssclasses` are those in the schema plus the `sub/` tags from `library.json` in `KNOWLEDGE_DIR` (`src/vocabulary.ts`, cached by mtime): a code used in Zotero no longer has to be copied by hand into the schema. The warning says to tag the item in Zotero or add the code to the schema.
+- After every successful write, move or deletion the server regenerates `notes.json` a few seconds later (`Vault.onChange`, `autoRefresh` in `src/server.ts`); errors go to the log and never into the response. `KNOWLEDGE_AUTO_REFRESH=false` disables it; `createServer` accepts `autoRefreshMs`.
 
 ## 0.3.1
 
-- `notes.json` porta `schema_version: 1`; il DOI MCP rifiuta una versione maggiore di quella che legge invece di interpretarla male. Si incrementa solo se un campo cambia significato o sparisce.
-- `save_to_obsidian`: il prompt chiede di leggere la fonte con l'MCP Zotero prima di scrivere (`get_annotations` per My Observations, `get_outline` e `get_fulltext` a pagine per Claude's Additions, `format_citations` per `reference`), di proporre `annotate_pdf` per gli elementi di To Verify confermati, e dopo il salvataggio di chiamare `refresh_notes_snapshot` e `map_mark` se il lavoro è in una mappa.
+- `notes.json` carries `schema_version: 1`; the DOI MCP rejects a version greater than the one it reads instead of misinterpreting it. It is incremented only if a field changes meaning or disappears.
+- `save_to_obsidian`: the prompt asks to read the source with the Zotero MCP before writing (`get_annotations` for My Observations, `get_outline` and `get_fulltext` by pages for Claude's Additions, `format_citations` for `reference`), to propose `annotate_pdf` for the confirmed To Verify items, and after saving to call `refresh_notes_snapshot` and `map_mark` if the work is in a map.
 
 ## 0.3.0
 
-Revisione della progettazione dei tool e dell'infrastruttura di lettura, a partire
-da un audit dei tool (necessità, granularità, nomi, descrizioni, parametri, output,
-costo in contesto) e da una revisione dell'intero progetto.
+Review of the tool design and of the reading infrastructure, starting
+from an audit of the tools (necessity, granularity, names, descriptions, parameters, output,
+context cost) and a review of the whole project.
 
-### Contratti dei tool (incompatibili con 0.2.0)
+### Tool contracts (incompatible with 0.2.0)
 
-- `validate_note`: parametri `note` e `folder` separati, esattamente uno dei due;
-  prima il tipo di controllo dipendeva dal suffisso `.md` del parametro `path`.
-  Su una cartella il risultato include `duplicateNames`, i nomi di nota condivisi
-  da più note con i rispettivi percorsi.
-- `query_notes`: `value` e `prefix` descritti e mutuamente esclusivi; senza
-  nessuno dei due restituisce ogni nota che ha il campo, con i suoi valori
-  (serve a elencare un vocabolario). I valori sono sotto la chiave fissa `values`,
-  non più sotto il nome del campo.
-- `backlinks`: parametro `limit` (default 50, massimo 200) e campo `limited`;
-  `count` resta il totale.
-- `read_note`: parametro `maxChars` (default 200000). Quando il contenuto viene
-  tagliato il risultato riporta `truncated` e `totalChars` e non contiene
-  `version`, così una scrittura da una lettura parziale non può perdere la coda
-  della nota.
-- Tool di grafo (`similar_notes`, `suggest_links`, `unresolved_links`):
-  `shared`, `via` e `from` contengono percorsi, non nomi; `duplicateNames` è un
-  conteggio, la lista è in `validate_note`.
-- Ogni tool dichiara un `outputSchema` e restituisce `structuredContent` oltre al
-  testo JSON; i client possono validare i risultati.
-- Descrizioni: `similar_notes` e `suggest_links` si delimitano a vicenda;
-  `list_notes` descrive `folder` e il formato di ritorno; `patch_frontmatter`
-  documenta `null` in `set`; `write_note` resta il riferimento per lo schema.
-- Errori di file: `ENOENT`, `EEXIST`, `ENOTDIR` e `EISDIR` producono messaggi con
-  il percorso relativo al vault e il tool da usare per correggere la chiamata.
+- `validate_note`: separate `note` and `folder` parameters, exactly one of the two;
+  previously the kind of check depended on the `.md` suffix of the `path` parameter.
+  On a folder the result includes `duplicateNames`, the note names shared
+  by several notes with their paths.
+- `query_notes`: `value` and `prefix` described and mutually exclusive; with
+  neither it returns every note that has the field, with its values
+  (used to list a vocabulary). The values are under the fixed key `values`,
+  no longer under the field name.
+- `backlinks`: `limit` parameter (default 50, maximum 200) and `limited` field;
+  `count` remains the total.
+- `read_note`: `maxChars` parameter (default 200000). When the content is
+  cut, the result reports `truncated` and `totalChars` and does not contain
+  `version`, so a write based on a partial read cannot lose the tail
+  of the note.
+- Graph tools (`similar_notes`, `suggest_links`, `unresolved_links`):
+  `shared`, `via` and `from` contain paths, not names; `duplicateNames` is a
+  count, the list is in `validate_note`.
+- Every tool declares an `outputSchema` and returns `structuredContent` in addition to
+  the JSON text; clients can validate the results.
+- Descriptions: `similar_notes` and `suggest_links` delimit each other;
+  `list_notes` describes `folder` and the return format; `patch_frontmatter`
+  documents `null` in `set`; `write_note` remains the reference for the schema.
+- File errors: `ENOENT`, `EEXIST`, `ENOTDIR` and `EISDIR` produce messages with
+  the path relative to the vault and the tool to use to fix the call.
 
-### Indice in memoria
+### In-memory index
 
-- Nuovo modulo `src/catalog.ts`: copia in memoria di ogni nota, condivisa tra le
-  sessioni HTTP. A ogni chiamata elenca il vault e confronta mtime, ctime e
-  dimensione; rilegge solo i file cambiati. Il ctime copre il caso di una
-  sincronizzazione che ripristina un file con mtime e dimensione identici.
-- I tool sull'intero vault (ricerca, query, validazione di cartelle, grafo,
-  backlink, rinomina, snapshot) leggono dall'indice. Il grafo dei link viene
-  ricostruito solo quando l'indice è cambiato.
-- La ricerca è passata da `Vault` all'indice. Lo snapshot è asincrono e condivide
-  la stessa scansione; da riga di comando richiede anche `OBSIDIAN_BACKUP_PATH`.
-- Il tetto sul numero di note passa da 2000 a 10000 e limita la memoria, non la
-  correttezza del grafo per i vault sotto quella soglia.
+- New module `src/catalog.ts`: in-memory copy of every note, shared across
+  HTTP sessions. On every call it lists the vault and compares mtime, ctime and
+  size; it re-reads only the changed files. The ctime covers the case of a
+  sync that restores a file with identical mtime and size.
+- The whole-vault tools (search, query, folder validation, graph,
+  backlinks, rename, snapshot) read from the index. The link graph is
+  rebuilt only when the index has changed.
+- Search moved from `Vault` to the index. The snapshot is asynchronous and shares
+  the same scan; from the command line it also requires `OBSIDIAN_BACKUP_PATH`.
+- The cap on the number of notes goes from 2000 to 10000 and limits memory, not the
+  correctness of the graph for vaults under that threshold.
 
-### Copie di recupero
+### Recovery copies
 
-- Il nome del file contiene un hash del percorso della nota.
-- Ritenzione: restano le ultime `OBSIDIAN_BACKUP_KEEP` copie per nota (20) e
-  nessuna copia più vecchia di `OBSIDIAN_BACKUP_DAYS` giorni (90); `Infinity`
-  disattiva un limite. La pulizia avviene a ogni nuova copia; un suo fallimento
-  non blocca la scrittura. Le copie precedenti, senza hash nel nome, vengono
-  eliminate solo per età.
-- `npm run backups -- list <percorso>` e `show <id>` elencano e stampano le
-  copie; nessun tool MCP le espone.
+- The file name contains a hash of the note's path.
+- Retention: the last `OBSIDIAN_BACKUP_KEEP` copies per note are kept (20) and
+  no copy older than `OBSIDIAN_BACKUP_DAYS` days (90); `Infinity`
+  disables a limit. Cleanup happens at every new copy; its failure
+  does not block the write. Earlier copies, without a hash in the name, are
+  deleted by age only.
+- `npm run backups -- list <path>` and `show <id>` list and print the
+  copies; no MCP tool exposes them.
 
-### Prompt e configurazione
+### Prompts and configuration
 
-- Il testo di `save_to_obsidian` è in `prompts/save_to_obsidian.md`, con
-  `{{source}}` al posto dell'argomento; l'installer copia la cartella.
-- L'installer non ha più hostname e percorso del vault cablati: alla prima
-  installazione li legge da `PUBLIC_HOSTNAME` e `OBSIDIAN_VAULT_PATH`
-  nell'ambiente, negli aggiornamenti dal file esistente.
-- `.env.example` documenta le variabili di ritenzione.
+- The text of `save_to_obsidian` is in `prompts/save_to_obsidian.md`, with
+  `{{source}}` in place of the argument; the installer copies the folder.
+- The installer no longer has the hostname and vault path hard-wired: on first
+  installation it reads them from `PUBLIC_HOSTNAME` and `OBSIDIAN_VAULT_PATH`
+  in the environment, on upgrades from the existing file.
+- `.env.example` documents the retention variables.
 
-### Test e CI
+### Tests and CI
 
-- Workflow `.github/workflows/ci.yml`: build e test su Node 22 a ogni push e
+- Workflow `.github/workflows/ci.yml`: build and tests on Node 22 on every push and
   pull request.
-- Nuovi test: rinomina con una nota non riscrivibile, aggiornamenti concorrenti
-  con la stessa versione, destinazione esistente, troncamento della ricerca,
-  indice (modifiche esterne, cancellazioni, ctime, scansioni concorrenti),
-  ritenzione dei backup, prompt su file, validazione dell'output di ogni tool
-  contro il suo schema.
+- New tests: rename with a note that cannot be rewritten, concurrent updates
+  with the same version, existing destination, search truncation,
+  index (external changes, deletions, ctime, concurrent scans),
+  backup retention, prompts from file, validation of every tool's output
+  against its schema.
 
-### Documentazione
+### Documentation
 
-- README generico, con accenti e limiti aggiornati.
-- `deploy/RUNBOOK.md` raccoglie host, percorsi, installazione, aggiornamento,
-  passaggio a OAuth, rollback, recupero di una nota e collegamento a Claude.
-- `.github/copilot-instructions.md` indica dove stanno indice, prompt e runbook.
+- Generic README, with updated notes and limits.
+- `deploy/RUNBOOK.md` collects host, paths, installation, upgrade,
+  switch to OAuth, rollback, recovery of a note and connection to Claude.
+- `.github/copilot-instructions.md` says where the index, prompts and runbook are.
 
-### Da fare al momento dell'aggiornamento
+### To do at upgrade time
 
-- Ricaricare il connettore in Claude: i contratti dei tool sono cambiati.
-- Copiare anche `prompts/` nella directory del programma (vedi runbook).
-- Decidere se accettare la ritenzione dei backup per default o disattivarla
-  con `OBSIDIAN_BACKUP_KEEP=Infinity` e `OBSIDIAN_BACKUP_DAYS=Infinity`.
+- Reload the connector in Claude: the tool contracts have changed.
+- Also copy `prompts/` into the program directory (see the runbook).
+- Decide whether to accept the default backup retention or disable it
+  with `OBSIDIAN_BACKUP_KEEP=Infinity` and `OBSIDIAN_BACKUP_DAYS=Infinity`.
 
 ## 0.2.0
 
-Versione precedente: quindici tool, OAuth con `oidc-provider`, schema delle note,
-riscrittura dei wikilink in `move_note`, snapshot per le mappe del DOI MCP.
+Previous version: fifteen tools, OAuth with `oidc-provider`, note schema,
+wikilink rewriting in `move_note`, snapshot for the DOI MCP's maps.

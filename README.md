@@ -1,172 +1,172 @@
 # Obsidian MCP
 
-Server MCP per un vault di note Markdown sincronizzato con Remotely Save su un WebDAV.
-Node.js >= 22, TypeScript, SDK MCP ufficiale v2. Trasporti HTTP e stdio.
+MCP server for a vault of Markdown notes synced with Remotely Save over WebDAV.
+Node.js >= 22, TypeScript, official MCP SDK v2. HTTP and stdio transports.
 
-Per Claude web e app è disponibile OAuth con accesso tramite password: non serve
-configurare Request headers. Il protocollo è gestito da `oidc-provider`, con
-PKCE S256, consenso esplicito, access token di un'ora e rinnovo automatico.
-È la dipendenza più grande del progetto e l'unica superficie esposta a Internet:
-esiste perché i connettori di Claude web non inviavano header personalizzati.
-La modalità a token statico resta disponibile: il token viaggia solo nell'header
-`Authorization: Bearer`; un token nell'URL viene rifiutato, a meno di impostare
-`MCP_ALLOW_QUERY_TOKEN=true`. Serve se si usa il token statico con Claude web, il cui modulo
-dei connettori ha solo nome e URL: l'URL diventa `https://host/obsidian-mcp?token=<MCP_TOKEN>`.
-Gli altri parametri nella query restano rifiutati.
+For Claude web and the apps, OAuth with password login is available: there is no need
+to configure Request headers. The protocol is handled by `oidc-provider`, with
+PKCE S256, explicit consent, one-hour access tokens and automatic renewal.
+It is the project's largest dependency and the only surface exposed to the Internet:
+it exists because the Claude web connectors did not send custom headers.
+Static-token mode is still available: the token travels only in the
+`Authorization: Bearer` header; a token in the URL is rejected unless you set
+`MCP_ALLOW_QUERY_TOKEN=true`. That is needed when using the static token with Claude web, whose connector form
+has only a name and a URL: the URL becomes `https://host/obsidian-mcp?token=<MCP_TOKEN>`.
+Other query parameters are still rejected.
 
-Le modifiche per versione sono in [CHANGELOG.md](CHANGELOG.md), le proposte di sviluppo in
-[ROADMAP.md](ROADMAP.md). Le procedure per una macchina specifica (installazione, aggiornamento, passaggio a
-OAuth, collegamento a Claude, rollback) sono in [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
+Changes per version are in [CHANGELOG.md](CHANGELOG.md), development proposals in
+[ROADMAP.md](ROADMAP.md). Procedures for a specific machine (installation, upgrade, switching to
+OAuth, connecting to Claude, rollback) are in [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
 
-## Architettura
+## Architecture
 
 ```text
 Claude web / app
   -> HTTPS Tailscale Funnel /obsidian-mcp
-  -> MCP su 127.0.0.1:3004, autenticato con Bearer token o OAuth
-  -> cartella del vault sul server
-  <- WebDAV rclone <- Remotely Save <- Obsidian sui dispositivi
+  -> MCP on 127.0.0.1:3004, authenticated with a Bearer token or OAuth
+  -> vault folder on the server
+  <- rclone WebDAV <- Remotely Save <- Obsidian on the devices
 ```
 
-Il server lavora direttamente nella cartella del WebDAV: non richiede le sue
-credenziali e non espone il WebDAV su Internet. I file devono essere Markdown
-leggibili, senza cifratura end-to-end di Remotely Save.
+The server works directly in the WebDAV folder: it does not need its
+credentials and does not expose the WebDAV to the Internet. Files must be readable
+Markdown, without Remotely Save's end-to-end encryption.
 
-## Strumenti
+## Tools
 
-| Strumento | Operazione |
+| Tool | Operation |
 | --- | --- |
-| `list_notes` | Note e cartelle dentro una cartella, con paginazione |
-| `read_note` | Contenuto (fino a `maxChars`) e versione SHA-256; una lettura troncata non ha versione |
-| `search_notes` | Ricerca letterale in percorsi e contenuti |
-| `write_note` | Crea oppure aggiorna con versione attesa; controlla lo schema prima di scrivere |
-| `patch_frontmatter` | Cambia o toglie campi del frontmatter senza toccare il corpo |
-| `append_note` | Aggiunge testo in fondo alla nota o in fondo a una sezione |
-| `validate_note` | Controlla una nota (`note`) o una cartella (`folder`) rispetto allo schema; per una cartella elenca anche i nomi duplicati |
-| `query_notes` | Cerca per campo del frontmatter: valore esatto, prefisso (es. `cssclasses` con prefisso `50`) o solo il campo, per elencarne i valori |
-| `backlinks` | Note che linkano una nota, con la riga del link |
-| `similar_notes` | Note con vicinato simile nel grafo dei link (Jaccard), con i vicini condivisi |
-| `suggest_links` | Note non ancora linkate che probabilmente dovrebbero esserlo (Adamic-Adar), con il "via" |
-| `unresolved_links` | Wikilink verso note che non esistono, i più citati per primi |
-| `move_note` | Sposta senza sovrascrivere; se cambia il nome riscrive i wikilink in tutte le note e riporta quali note ha aggiornato |
-| `delete_note` | Elimina dal vault dopo una copia recuperabile |
-| `concept_relations` | Le relazioni tipizzate registrate nelle note di concetto (`kind: concept`): chi adotta, rivede, rifiuta, applica, estende o contrappone la lettura di chi, con l'evidenza; filtri per concetto, nota o tipo |
-| `refresh_notes_snapshot` | Rigenera `notes.json` e `notes_text.json` in `KNOWLEDGE_DIR` per le mappe e la ricerca del DOI MCP (dopo ogni scrittura succede da sé pochi secondi dopo; `KNOWLEDGE_AUTO_REFRESH=false` lo disattiva); importa anche i report nuovi |
-| `import_reports` | Copia una volta sola in `Inbox/` (o `OBSIDIAN_INBOX_FOLDER`) i report Markdown che altri servizi lasciano in `KNOWLEDGE_DIR/reports` (il lavoro settimanale del DOI MCP); avviene da sé ogni ora |
+| `list_notes` | Notes and folders inside a folder, with pagination |
+| `read_note` | Content (up to `maxChars`) and SHA-256 version; a truncated read has no version |
+| `search_notes` | Literal search in paths and contents |
+| `write_note` | Creates, or updates with an expected version; checks the schema before writing |
+| `patch_frontmatter` | Changes or removes frontmatter fields without touching the body |
+| `append_note` | Appends text at the end of the note or at the end of a section |
+| `validate_note` | Checks a note (`note`) or a folder (`folder`) against the schema; for a folder it also lists duplicate names |
+| `query_notes` | Searches by frontmatter field: exact value, prefix (e.g. `cssclasses` with prefix `50`) or just the field, to list its values |
+| `backlinks` | Notes that link to a note, with the line of the link |
+| `similar_notes` | Notes with a similar neighbourhood in the link graph (Jaccard), with the shared neighbours |
+| `suggest_links` | Notes not yet linked that probably should be (Adamic-Adar), with the "via" |
+| `unresolved_links` | Wikilinks to notes that do not exist, most cited first |
+| `move_note` | Moves without overwriting; if the name changes it rewrites the wikilinks in all notes and reports which notes it updated |
+| `delete_note` | Deletes from the vault after making a recoverable copy |
+| `concept_relations` | The typed relations recorded in concept notes (`kind: concept`): who adopts, revises, rejects, applies, extends or contrasts whose reading, with the evidence; filters by concept, note or type |
+| `refresh_notes_snapshot` | Regenerates `notes.json` and `notes_text.json` in `KNOWLEDGE_DIR` for the DOI MCP's maps and search (after every write this happens by itself a few seconds later; `KNOWLEDGE_AUTO_REFRESH=false` disables it); it also imports new reports |
+| `import_reports` | Copies once into `Inbox/` (or `OBSIDIAN_INBOX_FOLDER`) the Markdown reports that other services leave in `KNOWLEDGE_DIR/reports` (the DOI MCP's weekly job); it happens by itself every hour |
 
-Ogni tool dichiara un `outputSchema` e restituisce `structuredContent` oltre al
-testo JSON. I percorsi nei risultati del grafo (`shared`, `via`, `from`) sono
-percorsi completi, perché con nomi duplicati solo il percorso identifica la nota.
+Every tool declares an `outputSchema` and returns `structuredContent` in addition to the
+JSON text. The paths in graph results (`shared`, `via`, `from`) are full
+paths, because with duplicate names only the path identifies the note.
 
-Prompt: `save_to_obsidian` trasforma una discussione in chat o un item Zotero in una
-nota che segue il template (vedi sotto) e la mostra prima di salvarla. Il testo è in
-`prompts/save_to_obsidian.md`, con `{{source}}` al posto dell'argomento: si può
-cambiare senza ricompilare, riavviando il servizio. `map_argument` (`prompts/argue.md`)
-costruisce o aggiorna una nota di tesi (`kind: thesis`), cioè un hub tra fonti con Position,
-Supporters, Objections e Replies, una riga per fonte con pagina, a partire dalle note di
-lettura e dai testi in Zotero. `concept_card` (`prompts/concept.md`) costruisce o aggiorna una
-scheda di concetto (`kind: concept`): le letture di un termine conteso per autore e le relazioni
-tipizzate tra le letture nel campo `relations`.
+Prompts: `save_to_obsidian` turns a chat discussion or a Zotero item into a
+note that follows the template (see below) and shows it before saving. The text is in
+`prompts/save_to_obsidian.md`, with `{{source}}` in place of the argument: it can be
+changed without recompiling, by restarting the service. `map_argument` (`prompts/argue.md`)
+builds or updates a thesis note (`kind: thesis`), that is, a hub across sources with Position,
+Supporters, Objections and Replies, one line per source with its page, starting from the reading notes
+and the texts in Zotero. `concept_card` (`prompts/concept.md`) builds or updates a
+concept card (`kind: concept`): the readings of a contested term by author and the typed relations
+between the readings in the `relations` field.
 
-### Limiti
+### Limits
 
-Solo file `.md`, fino a 1 MB. Cartelle nascoste e link simbolici sono esclusi.
+Only `.md` files, up to 1 MB. Hidden folders and symbolic links are excluded.
 
-I tool sull'intero vault (ricerca, query, validazione di cartelle, grafo, backlink,
-rinomina, snapshot) leggono da un indice in memoria condiviso tra le sessioni. A ogni
-chiamata l'indice elenca il vault e confronta mtime, ctime e dimensione di ogni file:
-rilegge solo le note cambiate, anche quando a cambiarle è stata la sincronizzazione.
-Il grafo dei link viene ricostruito solo quando l'indice è cambiato. L'indice contiene
-al massimo 10000 note; oltre quel limite il risultato contiene `truncated: true` e le
-note successive nell'ordine di visita mancano.
+The whole-vault tools (search, query, folder validation, graph, backlinks,
+rename, snapshot) read from an in-memory index shared across sessions. On every
+call the index lists the vault and compares the mtime, ctime and size of each file:
+it re-reads only the notes that changed, even when the change came from syncing.
+The link graph is rebuilt only when the index has changed. The index holds
+at most 10000 notes; beyond that limit the result contains `truncated: true` and the
+later notes in visit order are missing.
 
-Le note illeggibili (non UTF-8 o oltre 1 MB) non bloccano i tool sull'intero vault:
-vengono saltate ed elencate in `skipped` con il motivo. I link dentro blocchi di codice
-non contano, quelli nelle tabelle (`[[Nota\|alias]]`) sì; gli allegati (PDF, immagini)
-non sono note. Nomi di nota ripetuti in cartelle diverse vengono contati in
-`duplicateNames` dai tool di grafo ed elencati da `validate_note` su una cartella.
+Unreadable notes (not UTF-8 or over 1 MB) do not block the whole-vault tools:
+they are skipped and listed in `skipped` with the reason. Links inside code blocks
+do not count, those in tables (`[[Note\|alias]]`) do; attachments (PDFs, images)
+are not notes. Note names repeated in different folders are counted in
+`duplicateNames` by the graph tools and listed by `validate_note` on a folder.
 
-Gli aggiornamenti, gli spostamenti e le eliminazioni richiedono la versione restituita
-da `read_note`. La creazione fallisce se la nota esiste già. Gli errori di percorso
-indicano la nota mancante o la destinazione occupata e il tool da usare per trovarla.
+Updates, moves and deletions require the version returned
+by `read_note`. Creation fails if the note already exists. Path errors
+name the missing note or the occupied destination and the tool to use to find it.
 
-Il grafo usa i link nel testo e quelli nel campo `related` del frontmatter, risolti per
-nome come in Obsidian. I tool di grafo servono per le domande su tutto il vault; per
-collegare una singola nota conviene leggere e cercare nel testo.
+The graph uses the links in the text and those in the `related` frontmatter field, resolved by
+name as Obsidian does. The graph tools are for questions about the whole vault; to
+link a single note it is better to read and search the text.
 
-## Schema e template delle note
+## Note schema and template
 
-`schema/note-schema.json` definisce:
+`schema/note-schema.json` defines:
 
-- `scope`: le cartelle soggette allo schema (`Zettelkasten/`, tranne `Zettelkasten/Da rivedere/`).
-  Le note fuori scope si scrivono senza controlli.
-- `fields`: l'ordine dei campi, `kind` (facoltativo: `reading`, `person`, `concept`, `thesis`, `map`),
-  `cssclasses`, `subclasses`, `related`, `relations`, `aliases`, `reference`, `tags`. Una nota con `kind: thesis`
-  deve avere la sezione Position e almeno una tra Supporters e Objections (avviso); una con
-  `kind: concept` la sezione Definition e almeno una tra Readings e Relations.
-- `relations`: in una scheda di concetto, una voce per relazione tra due letture:
-  `{from: "[[Norman]]", type: revises, to: "[[Gibson]]", evidence: "p. 9"}`. `from` e `to` sono wikilink a
-  note esistenti (errore se non lo sono, avviso se la nota manca), `type` uno di `relations.types`
-  (`adopts`, `revises`, `rejects`, `applies`, `extends`, `contrasts`; errore altrimenti), `evidence` la pagina
-  in cui la relazione è detta o la parola `interpretation` quando è una lettura nostra (avviso se manca
-  o ha un'altra forma). `notes.json` porta le relazioni normalizzate.
-- `cssclasses.values`: i codici ANZSRC FoR 2020 a 6 cifre, con lo stesso slug dei tag `sub/` di
-  Zotero (es. `500310-phenomenology`), al massimo 3 per nota. Ai valori elencati qui si aggiungono
-  i tag `sub/` letti da `library.json` in `KNOWLEDGE_DIR` (l'istantanea dell'MCP Zotero): un codice
-  usato in Zotero vale senza copiarlo, e la lista nello schema resta come riserva. Un codice ben
-  formato che non è in nessuna delle due dà solo un avviso.
-- `subclasses.known`: il vocabolario proprio (concetti, correnti, periodi); un valore nuovo dà solo un avviso.
-- `aliases.min`: numero minimo consigliato di alias (avviso).
-- `template.headings`: i titoli `####` ammessi; `template.exclude` le cartelle d'archivio con la
-  struttura precedente (`Zettelkasten/Storia della filosofia/`).
+- `scope`: the folders subject to the schema (`Zettelkasten/`, except `Zettelkasten/Da rivedere/`).
+  Notes outside the scope are written without checks.
+- `fields`: the order of the fields, `kind` (optional: `reading`, `person`, `concept`, `thesis`, `map`),
+  `cssclasses`, `subclasses`, `related`, `relations`, `aliases`, `reference`, `tags`. A note with `kind: thesis`
+  must have the Position section and at least one of Supporters and Objections (warning); one with
+  `kind: concept` the Definition section and at least one of Readings and Relations.
+- `relations`: in a concept card, one entry per relation between two readings:
+  `{from: "[[Norman]]", type: revises, to: "[[Gibson]]", evidence: "p. 9"}`. `from` and `to` are wikilinks to
+  existing notes (error if they are not, warning if the note is missing), `type` one of `relations.types`
+  (`adopts`, `revises`, `rejects`, `applies`, `extends`, `contrasts`; error otherwise), `evidence` the page
+  where the relation is stated, or the word `interpretation` when it is our own reading (warning if it is missing
+  or has another form). `notes.json` carries the normalised relations.
+- `cssclasses.values`: the 6-digit ANZSRC FoR 2020 codes, with the same slug as the Zotero `sub/` tags
+  (e.g. `500310-phenomenology`), at most 3 per note. To the values listed here are added
+  the `sub/` tags read from `library.json` in `KNOWLEDGE_DIR` (the Zotero MCP's snapshot): a code
+  used in Zotero is valid without copying it, and the list in the schema remains as a fallback. A well-formed
+  code that is in neither gives only a warning.
+- `subclasses.known`: the own vocabulary (concepts, currents, periods); a new value gives only a warning.
+- `aliases.min`: the recommended minimum number of aliases (warning).
+- `template.headings`: the allowed `####` headings; `template.exclude` the archive folders with the
+  previous structure (`Zettelkasten/Storia della filosofia/`).
 
-Errori (bloccano la scrittura nello scope, anche quando una nota vi entra con `move_note`):
-frontmatter mancante o non valido, valore di `cssclasses` che non ha la forma di un codice, più di 3 codici, `related` non scritto come wikilink, campi non lista.
-Avvisi: codice ANZSRC non in lista, subclass nuova, link a se stessa o doppioni in `related`, pochi alias, campo estraneo,
-titolo `####` fuori dal template, riga vuota dopo `---`.
+Errors (they block writing within the scope, even when a note enters it with `move_note`):
+missing or invalid frontmatter, a `cssclasses` value that does not have the form of a code, more than 3 codes, `related` not written as a wikilink, non-list fields.
+Warnings: ANZSRC code not in the list, new subclass, link to itself or duplicates in `related`, few aliases, foreign field,
+`####` heading outside the template, blank line after `---`.
 
-Template, in inglese, titoli `####`, sottosezioni `#####`, sezioni tutte facoltative:
+Template, in English, `####` headings, `#####` subsections, all sections optional:
 
 ```text
-Reading Path                      edizione letta e checklist dei capitoli
-Thesis / Argument /               saggio (filosofia, teoria, design)
+Reading Path                      edition read and chapter checklist
+Thesis / Argument /               essay (philosophy, theory, design)
   Context and Interlocutors
-Research Question / Context /     paper empirico (es. user study HCI)
+Research Question / Context /     empirical paper (e.g. HCI user study)
   Method / Results / Limitations
-My Observations                   il ragionamento dell'utente, con le sue parole
-Claude's Additions                solo punti verificati sul testo, con pagina
-Connections                       link a note esistenti, con la frase che li giustifica
+My Observations                   the user's reasoning, in their own words
+Claude's Additions                only points verified against the text, with page
+Connections                       links to existing notes, with the sentence that justifies them
 Open Questions
-To Verify                         una riga per voce: cosa controllare e dove
-Definition / Cited by             note hub (persona, concetto, libro), con tabella dataview
+To Verify                         one line per item: what to check and where
+Definition / Cited by             hub notes (person, concept, book), with a dataview table
 ```
 
-Il contesto contiene un diagramma mermaid della genealogia: `flowchart TD`, predecessori in
-alto, frecce come "ha influenzato", autore in fondo; nodi con i cognomi scritti come le note
-delle persone e riga finale `class ... internal-link;`.
+The context contains a mermaid diagram of the genealogy: `flowchart TD`, predecessors at the
+top, arrows meaning "influenced", the author at the bottom; nodes with surnames written like the person
+notes and a final line `class ... internal-link;`.
 
-## Copie di recupero
+## Recovery copies
 
-Ogni modifica, spostamento o eliminazione salva prima una copia della nota nella
-cartella `OBSIDIAN_BACKUP_PATH`, fuori dal vault: un JSON con `path` e `content`, il cui
-nome contiene data, hash del percorso e un identificatore casuale. Le copie contengono
-testo in chiaro e sono leggibili solo dall'utente del servizio.
+Every edit, move or deletion first saves a copy of the note in the
+`OBSIDIAN_BACKUP_PATH` folder, outside the vault: a JSON with `path` and `content`, whose
+name contains the date, a hash of the path and a random identifier. The copies contain
+plain text and are readable only by the service user.
 
-Ritenzione: restano le ultime `OBSIDIAN_BACKUP_KEEP` copie per nota (20) e nessuna copia
-più vecchia di `OBSIDIAN_BACKUP_DAYS` giorni (90); `Infinity` disattiva un limite. La
-pulizia avviene a ogni nuova copia e un suo fallimento non blocca la scrittura.
+Retention: the last `OBSIDIAN_BACKUP_KEEP` copies per note are kept (20), and no copy
+older than `OBSIDIAN_BACKUP_DAYS` days (90); `Infinity` disables a limit. Cleanup
+happens at every new copy and its failure does not block the write.
 
-Nessun tool MCP espone le copie. Per elencarle o leggerle:
+No MCP tool exposes the copies. To list or read them:
 
 ```sh
-npm run backups -- list "Zettelkasten/Nota.md"
-npm run backups -- show <id> > recuperata.md
+npm run backups -- list "Zettelkasten/Note.md"
+npm run backups -- show <id> > recovered.md
 ```
 
-Per ripristinare una nota, arresta il servizio, scrivi il contenuto nel percorso
-verificato e poi sincronizza. Non copiare il JSON nel vault come se fosse la nota.
+To restore a note, stop the service, write the content to the verified path
+and then sync. Do not copy the JSON into the vault as if it were the note.
 
-## Sviluppo locale
+## Local development
 
 ```sh
 npm ci
@@ -174,61 +174,61 @@ npm run build
 npm test
 ```
 
-Per eseguire il server, configura un file `.env` usando i campi del modello
-`.env.example`, con un vault di prova e una cartella backup esterna al vault.
-Genera un token casuale, senza riutilizzare password WebDAV:
+To run the server, configure a `.env` file using the fields of the
+`.env.example` template, with a test vault and a backup folder outside the vault.
+Generate a random token, without reusing WebDAV passwords:
 
 ```sh
 openssl rand -hex 32
 npm start
 ```
 
-Non inviare il token in chat e non inserirlo in URL o file versionati.
-L'endpoint locale è `http://127.0.0.1:3004/mcp`.
-`GET /health` verifica soltanto che il processo risponda, non la sincronizzazione.
-`GET /status`, solo da loopback e senza credenziali, riporta versione, note nell'indice,
-note saltate, modalità di autenticazione e data dell'ultima istantanea.
+Do not send the token in chat and do not put it in URLs or versioned files.
+The local endpoint is `http://127.0.0.1:3004/mcp`.
+`GET /health` only checks that the process responds, not synchronisation.
+`GET /status`, from loopback only and without credentials, reports the version, notes in the index,
+skipped notes, authentication mode and date of the last snapshot.
 
-Per stdio: `npm run start:stdio`. La configurazione `.vscode/mcp.json` chiede i
-percorsi di un vault locale e dei backup; dopo la build puoi avviare e fare debug
-del server dal pannello MCP di VS Code. Non stampa note o token su stdout.
+For stdio: `npm run start:stdio`. The `.vscode/mcp.json` configuration asks for the
+paths of a local vault and of the backups; after the build you can start and debug
+the server from VS Code's MCP panel. It does not print notes or tokens to stdout.
 
-La CI (`.github/workflows/ci.yml`) esegue build e test su Node 22 a ogni push.
+CI (`.github/workflows/ci.yml`) runs build and tests on Node 22 on every push.
 
-## Limiti e recupero
+## Limits and recovery
 
-- Remotely Save sincronizza in modo asincrono: una scrittura MCP non implica
-  che Obsidian l'abbia già ricevuta. Verifica creazioni, modifiche e cancellazioni
-  con un vault di prova prima di abilitare scritture sulle note personali.
-- I controlli di versione serializzano le scritture di questo processo. Non
-  costituiscono una transazione con rclone o altri editor: una modifica esterna
-  tra il controllo e la scrittura può ancora creare un conflitto. Evita modifiche
-  simultanee alla stessa nota e conserva backup indipendenti.
-- Rinominando una nota, `move_note` prepara tutte le modifiche prima di spostare, poi riscrive i
-  wikilink nelle note Markdown (non nei Canvas) e riporta le note aggiornate e quelle eventualmente
-  non aggiornate. Se un'altra nota ha lo stesso nome, riscrive solo i link che indicano il percorso.
-  Uno spostamento tra cartelle senza cambio di nome non richiede modifiche.
-- `patch_frontmatter` cambia solo i campi indicati: gli altri restano identici, con tipi,
-  virgolette e commenti. Un valore `null` mantiene il campo con valore vuoto. Le note con a
-  capo CRLF li conservano.
-- Non si possono creare file o cartelle che differiscono solo per maiuscole da quelli esistenti.
-- WebDAV non esegue Obsidian. Questo server non comanda plugin, palette comandi,
-  nota attiva o interfaccia: occorre un'integrazione separata con l'app aperta.
-- Il token concede lettura e scrittura dell'intero vault configurato. Non
-  abilitare approvazioni automatiche per operazioni distruttive in Claude.
+- Remotely Save syncs asynchronously: an MCP write does not mean
+  Obsidian has already received it. Verify creations, edits and deletions
+  with a test vault before enabling writes on personal notes.
+- Version checks serialise the writes of this process. They are not
+  a transaction with rclone or other editors: an external change
+  between the check and the write can still create a conflict. Avoid simultaneous
+  edits to the same note and keep independent backups.
+- When renaming a note, `move_note` prepares all the changes before moving, then rewrites the
+  wikilinks in the Markdown notes (not in Canvases) and reports the notes that were updated and any
+  that were not. If another note has the same name, it rewrites only the links that specify the path.
+  A move between folders without a name change needs no edits.
+- `patch_frontmatter` changes only the indicated fields: the others stay identical, with types,
+  quotes and comments. A `null` value keeps the field with an empty value. Notes with CRLF
+  line endings keep them.
+- You cannot create files or folders that differ only in case from existing ones.
+- WebDAV does not run Obsidian. This server does not control plugins, the command palette,
+  the active note or the interface: a separate integration with the open app is needed.
+- The token grants read and write access to the whole configured vault. Do not
+  enable automatic approvals for destructive operations in Claude.
 
-## Istantanea del vault
+## Vault snapshot
 
-`dist/snapshot.js` scrive `notes.json` in `KNOWLEDGE_DIR` (`/var/lib/knowledge` se non
-impostata): per ogni nota percorso, titolo, cartella, campi dello schema, le chiavi Zotero a
-cui punta `reference` (`zotero://select` o `zotero://open-pdf`) e i link in uscita. Serve ai
-servizi che non devono leggere il vault, come le mappe del DOI MCP. Il tool
-`refresh_notes_snapshot` lo rigenera su richiesta (pulsante "Refresh library and notes" della
-pagina delle mappe) leggendo dall'indice in memoria; da riga di comando servono
-`OBSIDIAN_VAULT_PATH` e `OBSIDIAN_BACKUP_PATH`.
+`dist/snapshot.js` writes `notes.json` in `KNOWLEDGE_DIR` (`/var/lib/knowledge` if not
+set): for each note the path, title, folder, schema fields, the Zotero keys that
+`reference` points to (`zotero://select` or `zotero://open-pdf`) and the outgoing links. It serves
+services that must not read the vault, such as the DOI MCP's maps. The
+`refresh_notes_snapshot` tool regenerates it on request (the "Refresh library and notes" button of the
+maps page), reading from the in-memory index; from the command line you need
+`OBSIDIAN_VAULT_PATH` and `OBSIDIAN_BACKUP_PATH`.
 
-## Riferimenti
+## References
 
-- SDK ufficiale: https://ts.sdk.modelcontextprotocol.io/v2/
-- Trasporto HTTP: https://ts.sdk.modelcontextprotocol.io/v2/serving/http.html
-- Connettori Claude: https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp
+- Official SDK: https://ts.sdk.modelcontextprotocol.io/v2/
+- HTTP transport: https://ts.sdk.modelcontextprotocol.io/v2/serving/http.html
+- Claude connectors: https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp

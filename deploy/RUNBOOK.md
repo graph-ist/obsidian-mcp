@@ -1,36 +1,36 @@
-# Runbook: installazione e gestione sul Raspberry Pi
+# Runbook: installation and management on the Raspberry Pi
 
-Procedure per una macchina specifica. Il README descrive il programma; qui ci sono
-i passaggi che richiedono privilegi sul server. Sostituisci host, utente e percorsi
-con i tuoi.
+Procedures for a specific machine. The README describes the program; here are
+the steps that require privileges on the server. Replace host, user and paths
+with your own.
 
-Valori usati finora:
+Values used so far:
 
-| Voce | Valore |
+| Item | Value |
 | --- | --- |
 | Host | `pi@aegis.local` |
-| WebDAV | `/srv/obsidian-webdav`, utente e gruppo `obsidian-dav` |
+| WebDAV | `/srv/obsidian-webdav`, user and group `obsidian-dav` |
 | Vault | `/srv/obsidian-webdav/Knowledge Graph` |
-| Programma | `/opt/obsidian-mcp` |
-| Ambiente | `/etc/obsidian-mcp.env` |
-| Stato OAuth | `/var/lib/obsidian-mcp/oauth` |
-| Copie di recupero | `/var/lib/obsidian-mcp/backups` |
-| Snapshot | `/var/lib/knowledge/notes.json` (gruppo `knowledge`) |
+| Program | `/opt/obsidian-mcp` |
+| Environment | `/etc/obsidian-mcp.env` |
+| OAuth state | `/var/lib/obsidian-mcp/oauth` |
+| Recovery copies | `/var/lib/obsidian-mcp/backups` |
+| Snapshot | `/var/lib/knowledge/notes.json` (group `knowledge`) |
 
-## Installazione iniziale
+## Initial installation
 
-Prima configura Remotely Save, esegui una prima sincronizzazione e identifica
-la cartella che contiene effettivamente le note. Usa il percorso completo di
-quella cartella in `OBSIDIAN_VAULT_PATH`, non l'intero WebDAV se ospita più vault.
-Effettua prima un backup indipendente e una prova con un vault non personale.
+First configure Remotely Save, run a first sync and identify
+the folder that actually contains the notes. Use the full path of
+that folder in `OBSIDIAN_VAULT_PATH`, not the whole WebDAV if it hosts several vaults.
+Make an independent backup first and try with a non-personal vault.
 
-Trasferisci il progetto senza `.env` e senza dipendenze locali, dal Mac:
+Transfer the project without `.env` and without local dependencies, from the Mac:
 
 ```sh
 rsync -av --exclude=node_modules --exclude=.env --exclude=.git --exclude=dist ./ pi@aegis.local:~/obsidian-mcp/
 ```
 
-Sul Pi, prepara e verifica il progetto, poi installa:
+On the Pi, prepare and verify the project, then install:
 
 ```sh
 cd ~/obsidian-mcp
@@ -41,20 +41,20 @@ npm prune --omit=dev
 sudo OBSIDIAN_VAULT_PATH="/srv/obsidian-webdav/Knowledge Graph" PUBLIC_HOSTNAME=your-host.your-tailnet.ts.net node deploy/install.mjs
 ```
 
-L'installer richiede un vault esistente accessibile a `obsidian-dav` e, alla prima
-installazione, le variabili `OBSIDIAN_VAULT_PATH` e `PUBLIC_HOSTNAME`; negli
-aggiornamenti le legge dal file di ambiente. Chiede di scegliere e confermare una
-password di almeno 12 caratteri: l'input è nascosto e viene salvato soltanto l'hash
-scrypt. Non crea vault e non modifica note o proprietari del vault. Se il percorso
-manca, si ferma prima di installare il servizio. Dopo le verifiche locali aggiunge
-le route Funnel dedicate a Obsidian, lasciando le altre inalterate. Mantieni la
-configurazione Remotely Save del vault. Non inviare password in chat.
+The installer requires an existing vault accessible to `obsidian-dav` and, on first
+installation, the variables `OBSIDIAN_VAULT_PATH` and `PUBLIC_HOSTNAME`; on
+upgrades it reads them from the environment file. It asks you to choose and confirm a
+password of at least 12 characters: the input is hidden and only the scrypt hash
+is saved. It does not create vaults and does not change notes or vault owners. If the path
+is missing, it stops before installing the service. After the local checks it adds
+the Funnel routes dedicated to Obsidian, leaving the others unchanged. Keep the
+vault's Remotely Save configuration. Do not send passwords in chat.
 
-## Aggiornamento del programma
+## Upgrading the program
 
-Per una nuova versione su un'installazione esistente, dopo `npm ci`, `npm run build` e
-`npm test` nella home di `pi`, copia programma, schema e prompt mantenendo una copia
-della versione attuale, poi riavvia:
+For a new version on an existing installation, after `npm ci`, `npm run build` and
+`npm test` in `pi`'s home, copy the program, schema and prompts, keeping a copy
+of the current version, then restart:
 
 ```sh
 sudo cp -a /opt/obsidian-mcp /opt/obsidian-mcp.bak-$(date +%Y%m%d-%H%M%S)
@@ -67,40 +67,40 @@ sudo chown -R root:root /opt/obsidian-mcp
 sudo systemctl restart obsidian-mcp
 ```
 
-Claude vede i tool nuovi solo dopo aver ricaricato il connettore. Per cambiare solo
-il prompt `save_to_obsidian` basta copiare `prompts/` e riavviare.
+Claude sees the new tools only after reloading the connector. To change only
+the `save_to_obsidian` prompt, just copy `prompts/` and restart.
 
-Le variabili facoltative `OBSIDIAN_BACKUP_KEEP` e `OBSIDIAN_BACKUP_DAYS` in
-`/etc/obsidian-mcp.env` regolano la ritenzione delle copie di recupero (20 copie
-per nota e 90 giorni se assenti). Le copie precedenti a questa versione, senza hash
-del percorso nel nome, vengono eliminate solo per età.
+The optional variables `OBSIDIAN_BACKUP_KEEP` and `OBSIDIAN_BACKUP_DAYS` in
+`/etc/obsidian-mcp.env` control the retention of recovery copies (20 copies
+per note and 90 days if absent). Copies older than this version, without a path hash
+in the name, are deleted by age only.
 
-## Aggiornamento a OAuth
+## Upgrading to OAuth
 
-Con il nuovo progetto già trasferito, compilato e testato nella home di `pi`:
+With the new project already transferred, built and tested in `pi`'s home:
 
 ```sh
 ssh -t pi@aegis.local 'sudo node /home/pi/obsidian-mcp/deploy/install.mjs --oauth'
 ```
 
-Scegli la password direttamente nel terminale e confermala. Non serve generare
-o copiare un token. L'upgrade conserva il percorso del vault e le copie delle
-note; crea copie del programma e della configurazione con suffisso
-`.before-oauth-<timestamp>`, riavvia esplicitamente il servizio e verifica la
-challenge OAuth prima di aggiungere le nuove route Funnel. Il vecchio token
-statico non è più accettato quando OAuth è attivo.
+Choose the password directly in the terminal and confirm it. There is no need to generate
+or copy a token. The upgrade keeps the vault path and the copies of the
+notes; it makes copies of the program and the configuration with the suffix
+`.before-oauth-<timestamp>`, restarts the service explicitly and verifies the OAuth
+challenge before adding the new Funnel routes. The old static
+token is no longer accepted when OAuth is active.
 
-Le quattro route pubbliche sono `/obsidian-mcp`, `/obsidian-auth`,
-`/.well-known/oauth-protected-resource/obsidian-mcp` e
-`/.well-known/oauth-authorization-server/obsidian-auth`. L'issuer dedicato evita
-di occupare le discovery root degli altri MCP sullo stesso hostname.
+The four public routes are `/obsidian-mcp`, `/obsidian-auth`,
+`/.well-known/oauth-protected-resource/obsidian-mcp` and
+`/.well-known/oauth-authorization-server/obsidian-auth`. The dedicated issuer avoids
+taking over the discovery roots of the other MCP servers on the same hostname.
 
-Sessioni, client registrati, grant e token sono persistiti in
-`/var/lib/obsidian-mcp/oauth`, fuori dal vault. Chiavi private e database sono
-accessibili solo all'utente del servizio; non copiarli nel WebDAV. Non avviare
-più istanze del provider sullo stesso database SQLite.
+Sessions, registered clients, grants and tokens are persisted in
+`/var/lib/obsidian-mcp/oauth`, outside the vault. Private keys and the database are
+accessible only to the service user; do not copy them into the WebDAV. Do not start
+more instances of the provider on the same SQLite database.
 
-Controlli senza credenziali:
+Checks without credentials:
 
 ```sh
 curl -i https://your-host.your-tailnet.ts.net/obsidian-mcp
@@ -110,52 +110,52 @@ curl -i https://your-host.your-tailnet.ts.net/obsidian-mcp
 curl --fail https://your-host.your-tailnet.ts.net/.well-known/oauth-protected-resource/obsidian-mcp
 ```
 
-Il primo deve rispondere `401` con `resource_metadata` nella challenge; il secondo
-deve restituire i metadata pubblici. Non usare `tailscale funnel reset`.
+The first must answer `401` with `resource_metadata` in the challenge; the second
+must return the public metadata. Do not use `tailscale funnel reset`.
 
 ## Rollback
 
-Ripristina con privilegi la directory del programma e il file di ambiente dalle
-copie dello stesso timestamp, quindi riavvia il servizio. Non ripristinare o
-modificare le note. Le route OAuth residue non danno accesso al vault e possono
-essere rimosse singolarmente, senza azzerare Funnel.
+With privileges, restore the program directory and the environment file from the
+copies with the same timestamp, then restart the service. Do not restore or
+modify the notes. Leftover OAuth routes give no access to the vault and can
+be removed individually, without resetting Funnel.
 
-Per recuperare una nota dalle copie di recupero:
+To recover a note from the recovery copies:
 
 ```sh
 sudo systemctl stop obsidian-mcp
-sudo -u obsidian-dav env OBSIDIAN_VAULT_PATH="/srv/obsidian-webdav/Knowledge Graph" OBSIDIAN_BACKUP_PATH=/var/lib/obsidian-mcp/backups node /opt/obsidian-mcp/dist/backups.js list "Zettelkasten/Nota.md"
+sudo -u obsidian-dav env OBSIDIAN_VAULT_PATH="/srv/obsidian-webdav/Knowledge Graph" OBSIDIAN_BACKUP_PATH=/var/lib/obsidian-mcp/backups node /opt/obsidian-mcp/dist/backups.js list "Zettelkasten/Note.md"
 ```
 
-Scegli l'id, estrai il contenuto con `show <id>` nel percorso verificato, poi
-riavvia il servizio e lascia sincronizzare.
+Choose the id, extract the content with `show <id>` to the verified path, then
+restart the service and let it sync.
 
-## Collegamento a Claude con token statico (vault di prova)
+## Connecting to Claude with a static token (test vault)
 
-Con il servizio a token statico, il connettore di Claude web invia il token da
-*Request headers*: `Authorization: Bearer <MCP_TOKEN>`. Un token nell'URL (`?token=`)
-viene rifiutato dalla 0.4.0. Leggi il token sul Pi con `sudo grep MCP_TOKEN /etc/obsidian-mcp.env`.
-Chi ha il token ha accesso completo al vault: usalo solo con vault di prova; per i vault
-personali usa OAuth.
+With the service in static-token mode, the Claude web connector sends the token from
+*Request headers*: `Authorization: Bearer <MCP_TOKEN>`. A token in the URL (`?token=`)
+is rejected by 0.4.0. Read the token on the Pi with `sudo grep MCP_TOKEN /etc/obsidian-mcp.env`.
+Whoever has the token has full access to the vault: use it only with test vaults; for personal
+vaults use OAuth.
 
-## Collegamento a Claude con OAuth
+## Connecting to Claude with OAuth
 
-In Claude, crea nuovamente il connettore personalizzato con questo URL esatto:
+In Claude, create the custom connector again with this exact URL:
 
 ```text
 https://your-host.your-tailnet.ts.net/obsidian-mcp
 ```
 
-Seleziona **Sign in now**, **Use Claude's published identity** e **Streamable
-HTTP**. Lascia **Request headers** vuoto. Premi **Connect**, inserisci la password
-scelta sul Pi nella pagina Obsidian e autorizza l'accesso. In alternativa è
-supportato **Register automatically**. Non occorrono Client ID o Client Secret.
+Select **Sign in now**, **Use Claude's published identity** and **Streamable
+HTTP**. Leave **Request headers** empty. Press **Connect**, enter the password
+chosen on the Pi in the Obsidian page and authorise access. Alternatively
+**Register automatically** is supported. Client ID and Client Secret are not needed.
 
-Il provider accetta la risoluzione dell'identità pubblicata soltanto da
-`claude.ai` e `claude.com`. Le registrazioni automatiche non conferiscono accesso
-al vault: servono comunque login e consenso. In seguito Claude gestisce i token
-e il loro rinnovo. Dopo il collegamento prova **Elenca le note del vault**.
+The provider accepts the resolution of the published identity only from
+`claude.ai` and `claude.com`. Automatic registrations do not grant access
+to the vault: login and consent are still required. Afterwards Claude manages the tokens
+and their renewal. After connecting, try **List the vault's notes**.
 
-Le password e gli access token non vengono accettati nei parametri URL. I codici
-di autorizzazione OAuth monouso viaggiano nel redirect previsto dal protocollo,
-sono validi 60 secondi e richiedono il verificatore PKCE per essere scambiati.
+Passwords and access tokens are not accepted in URL parameters. The single-use OAuth
+authorisation codes travel in the redirect provided by the protocol,
+are valid for 60 seconds and require the PKCE verifier to be exchanged.

@@ -1,78 +1,76 @@
-# Prossimi passi
+# Next steps
 
-Proposte in ordine di priorità, con il motivo e il costo stimato. Nessuna è
-urgente: la 0.3.0 è utilizzabile così com'è.
+Proposals in order of priority, with the reason and the estimated cost. None is
+urgent: 0.3.0 is usable as it is.
 
-## 1. Verifica sul vault reale prima di fidarsi dell'indice
+## 1. Verify on the real vault before trusting the index
 
-L'indice in memoria è stato provato solo su vault di test. Prima di affidargli
-le scritture quotidiane conviene, sul Pi, confrontare per qualche giorno i
-risultati di `validate_note` su una cartella e di `unresolved_links` con quelli
-della 0.2.0 (il backup `.bak-<data>` del programma resta avviabile a mano con un
-altro `PORT`). In particolare va osservato il comportamento con Remotely Save
-che sovrascrive file in blocco: il confronto su ctime dovrebbe coprirlo, ma la
-prova vale più del ragionamento.
+The in-memory index has only been tried on test vaults. Before entrusting it
+with daily writes, it is worth comparing on the Pi, for a few days, the
+results of `validate_note` on a folder and of `unresolved_links` with those
+of 0.2.0 (the program's `.bak-<date>` backup can still be started by hand with
+another `PORT`). In particular, watch the behaviour with Remotely Save
+overwriting files in bulk: the ctime comparison should cover it, but a
+test is worth more than reasoning.
 
-Costo: nessuna modifica al codice.
+Cost: no code changes.
 
-## 2. Monitoraggio minimo del servizio
+## 2. Minimal service monitoring
 
-`GET /health` dice solo che il processo risponde. Un endpoint che riporti
-numero di note nell'indice, generazione, data dell'ultima scansione, note
-saltate e spazio occupato dai backup permetterebbe di accorgersi di un vault
-non montato o di un disco pieno prima che lo faccia un tool. Va servito senza
-credenziali solo se non rivela percorsi; altrimenti dietro il Bearer.
+`GET /health` only says that the process responds. An endpoint reporting the
+number of notes in the index, the generation, the date of the last scan, skipped
+notes and the space used by backups would make it possible to notice an
+unmounted vault or a full disk before a tool does. It should be served without
+credentials only if it reveals no paths; otherwise behind the Bearer.
 
-Costo: una trentina di righe e un test.
+Cost: about thirty lines and a test.
 
-## 3. Notifica dei cambiamenti all'indice invece della scansione per chiamata
+## 3. Change notification for the index instead of a scan per call
 
-Oggi ogni chiamata su tutto il vault esegue uno `stat` per nota. Con `fs.watch`
-ricorsivo (supportato su Linux da Node 20) l'indice potrebbe aggiornarsi solo
-quando il filesystem segnala un cambiamento, riducendo la latenza dei tool di
-grafo a zero I/O. Il rischio è la perdita di eventi su mount particolari: va
-tenuta la scansione per `stat` come riconciliazione periodica, per esempio ogni
-minuto o quando l'ultima è più vecchia di una soglia.
+Today every whole-vault call runs a `stat` per note. With recursive `fs.watch`
+(supported on Linux since Node 20) the index could update only
+when the filesystem signals a change, bringing the latency of the graph tools
+down to zero I/O. The risk is losing events on particular mounts: the `stat` scan
+should be kept as a periodic reconciliation, for example every
+minute or when the last one is older than a threshold.
 
-Costo: moderato; da misurare prima, perché con qualche migliaio di note la
-scansione attuale potrebbe già essere sotto i 100 ms sul Pi.
+Cost: moderate; measure first, because with a few thousand notes the current
+scan may already be under 100 ms on the Pi.
 
-## 4. Ricerca con più di una parola
+## 4. Search with more than one word
 
-`search_notes` cerca una sottostringa letterale. Una ricerca con tutte le parole
-in qualunque ordine (AND di termini), con snippet attorno alla prima
-occorrenza, coprirebbe la maggior parte dei casi in cui oggi si ricorre a due
-chiamate. Un indice invertito non serve finché le note sono in memoria.
+`search_notes` looks for a literal substring. A search for all the words
+in any order (AND of terms), with a snippet around the first
+occurrence, would cover most of the cases where two calls are needed today. An inverted index is not needed as long as the notes are in memory.
 
-Costo: basso.
+Cost: low.
 
-## 5. Tool di lettura dei backup, se il recupero via riga di comando pesa
+## 5. A tool to read backups, if recovery from the command line becomes a burden
 
-La 0.3.0 espone le copie solo da terminale, per scelta: un tool le metterebbe a
-portata del modello e delle approvazioni automatiche. Se nella pratica il
-recupero diventa frequente, un tool in sola lettura `list_backups` con `path` e
-un `read_backup` con `id` sono una decina di righe ciascuno. Ripristinare resta
-compito di `write_note`, con la versione corrente, così il controllo di
-concorrenza non viene aggirato.
+0.3.0 exposes the copies only from the terminal, by choice: a tool would put them
+within reach of the model and of automatic approvals. If in practice
+recovery becomes frequent, a read-only `list_backups` tool with `path` and
+a `read_backup` with `id` are about ten lines each. Restoring remains
+the job of `write_note`, with the current version, so the concurrency check
+is not bypassed.
 
-Costo: basso; la decisione è di progettazione, non di implementazione.
+Cost: low; the decision is about design, not implementation.
 
-## 6. Separare validazione generica e regole personali
+## 6. Separate generic validation from personal rules
 
-`src/notes.ts` conosce il significato di ogni campo del template. Finché il
-template è stabile va bene così; se inizia a cambiare spesso, le regole sugli
-alias e sulle intestazioni andrebbero portate nello schema come vincoli
-dichiarativi (pattern, soglie, liste), lasciando nel codice solo l'esecuzione.
-Da fare solo quando il bisogno si presenta.
+`src/notes.ts` knows the meaning of every field of the template. As long as the
+template is stable this is fine; if it starts to change often, the rules on
+aliases and headings should move into the schema as declarative constraints
+(patterns, thresholds, lists), leaving only the execution in the code.
+Do it only when the need arises.
 
-Costo: alto rispetto al beneficio attuale.
+Cost: high compared with the current benefit.
 
-## Cose da non fare
+## Things not to do
 
-- Un trasporto o un'autenticazione alternativi: OAuth copre Claude web, il token
-  statico copre i client con header; la superficie è già la parte più delicata.
-- Un motore di template o la generazione automatica di note: il prompt
-  `save_to_obsidian` e la revisione in chat sono il posto giusto per quel
-  giudizio, non il server.
-- Un indice persistente su disco: con 10000 note in memoria la ricostruzione
-  all'avvio costa pochi secondi e non vale la complessità della coerenza.
+- An alternative transport or authentication: OAuth covers Claude web, the static
+  token covers clients with headers; the surface is already the most delicate part.
+- A template engine or automatic note generation: the `save_to_obsidian` prompt
+  and the review in chat are the right place for that judgement, not the server.
+- A persistent index on disk: with 10000 notes in memory, rebuilding
+  at startup costs a few seconds and is not worth the complexity of consistency.
