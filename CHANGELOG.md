@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+- Published on npm as `@graph-ist/obsidian-mcp`, MIT licence. Commands `obsidian-mcp` (add `--stdio` for stdio) and `obsidian-mcp-backups`.
+- `OBSIDIAN_SCHEMA_PATH` and `OBSIDIAN_PROMPTS_DIR` replace the bundled note schema and prompt texts without editing the package.
+- The server version reported by MCP and `/status` is read from `package.json`.
 
 - `MCP_ALLOW_QUERY_TOKEN=true`: the token is also accepted as `?token=` in the URL, for the Claude web connector form, which has only a name and a URL. Off by default; other query parameters are still rejected.
 

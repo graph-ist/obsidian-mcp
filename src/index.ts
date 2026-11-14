@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import * as fs from 'node:fs/promises';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { createApp, createServer } from './server.js';

@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import express from 'express';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
@@ -15,6 +16,8 @@ import { inScope, linkTarget, loadSchema, patchFrontmatter, relationsOf, splitNo
 import { createOAuth, type OAuthOptions } from './oauth.js';
 import { writeSnapshot } from './snapshot.js';
 import { importReports } from './reports.js';
+
+const VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const respondIn = (root: string) => async (operation: () => Promise<object>) => {
   try {
@@ -49,7 +52,9 @@ async function checked(catalog: Catalog, schema: NoteSchema, path: string, conte
 
 // Prompt texts live in prompts/<name>.md, next to the schema, so the method can change without a
 // release; {{source}} is replaced with the argument.
-export function loadPrompts(directory = new URL('../prompts/', import.meta.url)) {
+export function loadPrompts(directory: URL = process.env.OBSIDIAN_PROMPTS_DIR
+  ? pathToFileURL(path.resolve(process.env.OBSIDIAN_PROMPTS_DIR) + path.sep)
+  : new URL('../prompts/', import.meta.url)) {
   const read = (name: string) => readFileSync(new URL(`${name}.md`, directory), 'utf8').trim();
   return { save_to_obsidian: read('save_to_obsidian'), argue: read('argue'), concept: read('concept') };
 }
@@ -82,7 +87,7 @@ export function autoRefresh(vault: Vault, catalog: Catalog, delayMs: number) {
 }
 
 export function createServer(vault: Vault, schema: NoteSchema = loadSchema(), catalog = new Catalog(vault), prompts = loadPrompts(), options: ServerOptions = {}) {
-  const server = new McpServer({ name: 'obsidian-vault', version: '0.5.0' });
+  const server = new McpServer({ name: 'obsidian-vault', version: VERSION });
   const delay = options.autoRefreshMs ?? (process.env.KNOWLEDGE_AUTO_REFRESH === 'false' ? false : 3000);
   if (delay !== false) vault.onChange = autoRefresh(vault, catalog, delay).schedule;
   const respond = respondIn(vault.root);
@@ -443,7 +448,7 @@ export function createApp(vault: Vault, token: string, publicHostname?: string, 
     const scan = await statusCatalog.scan();
     const notesFile = path.join(process.env.KNOWLEDGE_DIR ?? '/var/lib/knowledge', 'notes.json');
     const snapshot = await stat(notesFile).then(s => s.mtime.toISOString()).catch(() => null);
-    response.json({ service: 'obsidian-mcp', version: '0.5.0', notes: scan.notes.length, skipped: scan.skipped.length, truncated: scan.truncated, auth: oauthOptions ? 'oauth' : 'bearer', notes_snapshot: snapshot });
+    response.json({ service: 'obsidian-mcp', version: VERSION, notes: scan.notes.length, skipped: scan.skipped.length, truncated: scan.truncated, auth: oauthOptions ? 'oauth' : 'bearer', notes_snapshot: snapshot });
   });
   if (oauthOptions) {
     const relative = path.relative(vault.root, oauthOptions.stateDirectory);

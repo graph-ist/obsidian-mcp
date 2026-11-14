@@ -1,7 +1,12 @@
 # Obsidian MCP
 
-MCP server for a vault of Markdown notes synced with Remotely Save over WebDAV.
-Node.js >= 22, TypeScript, official MCP SDK v2. HTTP and stdio transports.
+[![npm](https://img.shields.io/npm/v/@graph-ist/obsidian-mcp.svg)](https://www.npmjs.com/package/@graph-ist/obsidian-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+MCP server for an Obsidian vault, or any folder of Markdown notes. It works on the files directly,
+so Obsidian does not need to be running: on a desktop it can point at the local vault, on a server at a
+folder synced with Remotely Save over WebDAV. Node.js >= 22, TypeScript, official MCP SDK v2.
+HTTP and stdio transports.
 
 For Claude web and the apps, OAuth with password login is available: there is no need
 to configure Request headers. The protocol is handled by `oidc-provider`, with
@@ -18,7 +23,88 @@ Changes per version are in [CHANGELOG.md](CHANGELOG.md), development proposals i
 [ROADMAP.md](ROADMAP.md). Procedures for a specific machine (installation, upgrade, switching to
 OAuth, connecting to Claude, rollback) are in [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
 
+## Installation
+
+The package is published on npm as [`@graph-ist/obsidian-mcp`](https://www.npmjs.com/package/@graph-ist/obsidian-mcp).
+It needs two folders: the vault, and a folder **outside** the vault for the recovery copies made before
+every edit (see [Recovery copies](#recovery-copies)). Try it on a copy of the vault first and keep an
+independent backup: see [Limits and recovery](#limits-and-recovery).
+
+### Claude Desktop (stdio)
+
+In `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": ["-y", "@graph-ist/obsidian-mcp", "--stdio"],
+      "env": {
+        "OBSIDIAN_VAULT_PATH": "/Users/you/Documents/MyVault",
+        "OBSIDIAN_BACKUP_PATH": "/Users/you/.obsidian-mcp-backups",
+        "KNOWLEDGE_AUTO_REFRESH": "false"
+      }
+    }
+  }
+}
+```
+
+`KNOWLEDGE_AUTO_REFRESH=false` turns off the snapshot for the DOI MCP; leave it on and set `KNOWLEDGE_DIR`
+only if you use that server too.
+
+### Claude Code
+
+```sh
+claude mcp add obsidian \
+  --env OBSIDIAN_VAULT_PATH="$HOME/Documents/MyVault" \
+  --env OBSIDIAN_BACKUP_PATH="$HOME/.obsidian-mcp-backups" \
+  --env KNOWLEDGE_AUTO_REFRESH=false \
+  -- npx -y @graph-ist/obsidian-mcp --stdio
+```
+
+### HTTP
+
+Without `--stdio` the command starts the HTTP server on `127.0.0.1:${PORT:-3004}/mcp`, to be put behind a
+reverse proxy (Tailscale Funnel, Caddy, nginx) for Claude web and the apps:
+
+```sh
+OBSIDIAN_VAULT_PATH=... OBSIDIAN_BACKUP_PATH=... MCP_TOKEN=$(openssl rand -hex 32) \
+PUBLIC_HOSTNAME=notes.example.org npx -y @graph-ist/obsidian-mcp
+```
+
+For a permanent installation (systemd unit, OAuth login, Tailscale Funnel) see [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
+
+### Configuration
+
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `OBSIDIAN_VAULT_PATH` | yes | | Folder with the notes; must exist and be writable |
+| `OBSIDIAN_BACKUP_PATH` | yes | | Folder for the recovery copies, outside the vault |
+| `OBSIDIAN_BACKUP_KEEP` / `OBSIDIAN_BACKUP_DAYS` | no | `20` / `90` | Copies kept per note and their maximum age |
+| `OBSIDIAN_SCHEMA_PATH` | no | bundled `schema/note-schema.json` | Note schema (see [Note schema and template](#note-schema-and-template)); the bundled one checks only `Zettelkasten/` |
+| `OBSIDIAN_PROMPTS_DIR` | no | bundled `prompts/` | Folder with `save_to_obsidian.md`, `argue.md`, `concept.md`, to replace the prompt texts |
+| `KNOWLEDGE_DIR` | no | `/var/lib/knowledge` | Where `notes.json` is written and reports are read (DOI MCP integration) |
+| `KNOWLEDGE_AUTO_REFRESH` | no | `true` | `false` stops rewriting `notes.json` after every write |
+| `OBSIDIAN_INBOX_FOLDER` | no | `Inbox` | Vault folder that receives the imported reports |
+| `PORT` | HTTP | `3004` | Listen port, always on 127.0.0.1 |
+| `MCP_TOKEN` | HTTP | | Static Bearer token, at least 32 characters |
+| `MCP_ALLOW_QUERY_TOKEN` | no | off | `true` also accepts the token as `?token=` in the URL |
+| `PUBLIC_HOSTNAME` | HTTP | | Public host name accepted behind the proxy |
+| `OAUTH_PASSWORD_HASH`, `OAUTH_ISSUER`, `PUBLIC_MCP_URL`, `OAUTH_STATE_PATH` | for OAuth | | OAuth login; the hash is written by `deploy/install.mjs` (see the runbook) |
+
+### From source
+
+```sh
+git clone https://github.com/graph-ist/obsidian-mcp.git
+cd obsidian-mcp
+npm ci && npm run build
+node dist/index.js --stdio
+```
+
 ## Architecture
+
+On the author's server the HTTP transport runs like this:
 
 ```text
 Claude web / app
@@ -156,11 +242,11 @@ Retention: the last `OBSIDIAN_BACKUP_KEEP` copies per note are kept (20), and no
 older than `OBSIDIAN_BACKUP_DAYS` days (90); `Infinity` disables a limit. Cleanup
 happens at every new copy and its failure does not block the write.
 
-No MCP tool exposes the copies. To list or read them:
+No MCP tool exposes the copies. To list or read them (with `OBSIDIAN_VAULT_PATH` and `OBSIDIAN_BACKUP_PATH` set; from a clone, `npm run backups -- list ...`):
 
 ```sh
-npm run backups -- list "Zettelkasten/Note.md"
-npm run backups -- show <id> > recovered.md
+npx -p @graph-ist/obsidian-mcp obsidian-mcp-backups list "Zettelkasten/Note.md"
+npx -p @graph-ist/obsidian-mcp obsidian-mcp-backups show <id> > recovered.md
 ```
 
 To restore a note, stop the service, write the content to the verified path
@@ -193,7 +279,9 @@ For stdio: `npm run start:stdio`. The `.vscode/mcp.json` configuration asks for 
 paths of a local vault and of the backups; after the build you can start and debug
 the server from VS Code's MCP panel. It does not print notes or tokens to stdout.
 
-CI (`.github/workflows/ci.yml`) runs build and tests on Node 22 on every push.
+CI (`.github/workflows/ci.yml`) runs build and tests on Node 22 on every push. Releases are published to
+npm by `.github/workflows/release.yml` when a GitHub release tagged `vX.Y.Z` (matching `package.json`) is
+published, through npm trusted publishing: no npm token is stored in the repository.
 
 ## Limits and recovery
 
